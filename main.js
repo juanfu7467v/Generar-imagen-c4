@@ -1,53 +1,90 @@
-const express = require("express");
-const axios = require("axios");
-const Jimp = require("jimp");
-const { v4: uuidv4 } = require("uuid");
-const fs = require("fs");
-const path = require("path");
-
+const express = require('express');
+const axios = require('axios');
+const fs = require('fs-extra');
+const { createCanvas, loadImage } = require('canvas');
 const app = express();
 const PORT = process.env.PORT || 3000;
-const PUBLIC_DIR = path.join(__dirname, "public");
-if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR);
 
-app.get("/generar-ficha", async (req, res) => {
-  const { dni } = req.query;
-  if (!dni) return res.status(400).json({ error: "Falta el parámetro DNI" });
+app.use(express.static('public'));
 
+app.get('/generar-ficha/:dni', async (req, res) => {
+  const dni = req.params.dni;
   try {
-    const response = await axios.get(`https://poxy-production.up.railway.app/reniec?dni=${dni}`);
-    const data = response.data?.result;
-    if (!data) return res.status(404).json({ error: "No se encontró información para el DNI ingresado." });
+    const { data } = await axios.get(`https://poxy-production.up.railway.app/reniec?dni=${dni}`);
+    if (!data.result) return res.status(404).send('DNI no encontrado');
 
-    const imagen = new Jimp(800, 1100, "#ffffff");
-    const font = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
+    const d = data.result;
+
+    // Crear imagen base
+    const width = 1000;
+    const height = 600;
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+
+    // Fondo blanco
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, width, height);
+
+    // Bordes
+    ctx.strokeStyle = '#000';
+    ctx.strokeRect(10, 10, width - 20, height - 20);
 
     // Título
-    imagen.print(font, 10, 10, "FICHA RENIEC C4 - DNI: " + dni);
+    ctx.fillStyle = '#003366';
+    ctx.font = 'bold 24px Arial';
+    ctx.fillText('REPÚBLICA DEL PERÚ – RENIEC – FICHA REGISTRO C4', 50, 50);
 
-    // Mostrar datos (hasta 45 campos para mayor detalle)
-    const campos = Object.entries(data);
-    let y = 40;
-    for (const [key, value] of campos) {
-      let texto = `${key}: ${typeof value === "object" ? JSON.stringify(value) : value}`;
-      imagen.print(font, 10, y, texto);
-      y += 22;
+    // Foto
+    if (d.imagenes?.foto) {
+      const imageBuffer = Buffer.from(d.imagenes.foto, 'base64');
+      const img = await loadImage(imageBuffer);
+      ctx.drawImage(img, 50, 80, 150, 190);
     }
 
-    // Guardar imagen en carpeta /public
-    const nombreArchivo = `${uuidv4()}.png`;
-    const rutaImagen = path.join(PUBLIC_DIR, nombreArchivo);
-    await imagen.writeAsync(rutaImagen);
+    // Texto
+    ctx.fillStyle = '#000';
+    ctx.font = '16px Arial';
 
-    const url = `${req.protocol}://${req.get("host")}/public/${nombreArchivo}`;
-    res.json({ message: "Imagen generada", url });
+    const lines = [
+      [`DNI:`, d.nuDni],
+      [`Nombre completo:`, `${d.preNombres} ${d.apePaterno} ${d.apeMaterno}`],
+      [`Fecha de Nacimiento:`, d.feNacimiento],
+      [`Estatura:`, `${d.estatura} cm`],
+      [`Sexo:`, d.sexo],
+      [`Estado Civil:`, d.estadoCivil],
+      [`Grado de Instrucción:`, d.gradoInstruccion],
+      [`Dirección:`, `${d.desDireccion}, ${d.distDireccion}, ${d.provDireccion}, ${d.depaDireccion}`],
+      [`Padre:`, d.nomPadre],
+      [`Madre:`, d.nomMadre],
+      [`Fecha de Emisión:`, d.feEmision],
+      [`Fecha de Caducidad:`, d.feCaducidad],
+      [`Declarante:`, d.nomDeclarante],
+      [`Verificador:`, d.digitoVerificacion],
+    ];
+
+    let y = 80;
+    lines.forEach(([label, value]) => {
+      ctx.fillText(label, 220, y);
+      ctx.fillText(value || '-', 400, y);
+      y += 30;
+    });
+
+    // Guardar imagen
+    const fileName = `ficha-${dni}.png`;
+    const filePath = `./public/${fileName}`;
+    const out = fs.createWriteStream(filePath);
+    const stream = canvas.createPNGStream();
+    stream.pipe(out);
+    out.on('finish', () => {
+      res.json({ success: true, url: `/` + fileName });
+    });
+
   } catch (error) {
-    res.status(500).json({ error: "Error al generar la ficha", detalle: error.message });
+    console.error(error);
+    res.status(500).send('Error generando ficha');
   }
 });
 
-app.use("/public", express.static(PUBLIC_DIR));
-
 app.listen(PORT, () => {
-  console.log(`Servidor escuchando en http://localhost:${PORT}`);
+  console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
