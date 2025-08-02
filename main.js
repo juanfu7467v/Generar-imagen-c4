@@ -54,7 +54,7 @@ app.get("/generar-ficha", async (req, res) => {
     imagen.composite(marcaAgua, 0, 0);
 
     // Título
-    imagen.print(fontTitle, 260, 20, "FICHA RENIEC - C4");
+    imagen.print(fontTitle, 260, 20, "RESULTADOS - CONSULTA PE APK");
 
     // Logo de la RENIEC
     if (fs.existsSync(LOGO_RENEC_PATH)) {
