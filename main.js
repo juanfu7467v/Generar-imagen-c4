@@ -1,89 +1,96 @@
-const express = require('express');
-const axios = require('axios');
-const fs = require('fs-extra');
-const { createCanvas, loadImage } = require('canvas');
+const express = require("express");
+const axios = require("axios");
+const Jimp = require("jimp");
+const { v4: uuidv4 } = require("uuid");
+const fs = require("fs");
+const path = require("path");
+
 const app = express();
 const PORT = process.env.PORT || 3000;
+const PUBLIC_DIR = path.join(__dirname, "public");
+if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR);
 
-app.use(express.static('public'));
+app.get("/generar-ficha", async (req, res) => {
+  const { dni } = req.query;
+  if (!dni) return res.status(400).json({ error: "Falta el parámetro DNI" });
 
-app.get('/generar-ficha/:dni', async (req, res) => {
-  const dni = req.params.dni;
   try {
-    const { data } = await axios.get(`https://poxy-production.up.railway.app/reniec?dni=${dni}`);
-    if (!data.result) return res.status(404).send('DNI no encontrado');
+    const response = await axios.get(`https://poxy-production.up.railway.app/reniec?dni=${dni}`);
+    const data = response.data?.result;
+    if (!data) return res.status(404).json({ error: "No se encontró información para el DNI ingresado." });
 
-    const d = data.result;
-
-    // Crear imagen base
-    const width = 1000;
-    const height = 600;
-    const canvas = createCanvas(width, height);
-    const ctx = canvas.getContext('2d');
-
-    // Fondo blanco
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, width, height);
-
-    // Bordes
-    ctx.strokeStyle = '#000';
-    ctx.strokeRect(10, 10, width - 20, height - 20);
+    const imagen = new Jimp(900, 1300, "#ffffff");
+    const fontTitle = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK);
+    const font = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
+    const fontBold = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
 
     // Título
-    ctx.fillStyle = '#003366';
-    ctx.font = 'bold 24px Arial';
-    ctx.fillText('REPÚBLICA DEL PERÚ – RENIEC – FICHA REGISTRO C4', 50, 50);
+    imagen.print(fontTitle, 260, 20, "FICHA RENIEC - C4");
 
-    // Foto
-    if (d.imagenes?.foto) {
-      const imageBuffer = Buffer.from(d.imagenes.foto, 'base64');
-      const img = await loadImage(imageBuffer);
-      ctx.drawImage(img, 50, 80, 150, 190);
+    // Foto del DNI
+    if (data.imagenes?.foto) {
+      const bufferFoto = Buffer.from(data.imagenes.foto, 'base64');
+      const foto = await Jimp.read(bufferFoto);
+      foto.resize(180, 220);
+      imagen.composite(foto, 680, 100); // posición foto
     }
 
-    // Texto
-    ctx.fillStyle = '#000';
-    ctx.font = '16px Arial';
-
-    const lines = [
-      [`DNI:`, d.nuDni],
-      [`Nombre completo:`, `${d.preNombres} ${d.apePaterno} ${d.apeMaterno}`],
-      [`Fecha de Nacimiento:`, d.feNacimiento],
-      [`Estatura:`, `${d.estatura} cm`],
-      [`Sexo:`, d.sexo],
-      [`Estado Civil:`, d.estadoCivil],
-      [`Grado de Instrucción:`, d.gradoInstruccion],
-      [`Dirección:`, `${d.desDireccion}, ${d.distDireccion}, ${d.provDireccion}, ${d.depaDireccion}`],
-      [`Padre:`, d.nomPadre],
-      [`Madre:`, d.nomMadre],
-      [`Fecha de Emisión:`, d.feEmision],
-      [`Fecha de Caducidad:`, d.feCaducidad],
-      [`Declarante:`, d.nomDeclarante],
-      [`Verificador:`, d.digitoVerificacion],
+    // Campos principales
+    const campos = [
+      { label: "DNI", value: data.nuDni },
+      { label: "Nombres completos", value: `${data.preNombres} ${data.apePaterno} ${data.apeMaterno}` },
+      { label: "Apellido Paterno", value: data.apePaterno },
+      { label: "Apellido Materno", value: data.apeMaterno },
+      { label: "Pre Nombres", value: data.preNombres },
+      { label: "Sexo", value: data.sexo },
+      { label: "Fecha de Nacimiento", value: data.feNacimiento },
+      { label: "Estado Civil", value: data.estadoCivil },
+      { label: "Grado de Instrucción", value: data.gradoInstruccion },
+      { label: "Estatura", value: `${data.estatura} cm` },
+      { label: "Fecha de Emisión", value: data.feEmision },
+      { label: "Fecha de Inscripción", value: data.feInscripcion },
+      { label: "Fecha de Caducidad", value: data.feCaducidad },
+      { label: "Donación de Órganos", value: data.donaOrganos },
+      { label: "Restricción", value: data.deRestriccion || "NINGUNA" },
+      { label: "Nombre del Padre", value: data.nomPadre },
+      { label: "Nro. Doc. del Padre", value: data.nuDocPadre },
+      { label: "Nombre de la Madre", value: data.nomMadre },
+      { label: "Nro. Doc. de la Madre", value: data.nuDocMadre },
+      { label: "Nombre Declarante", value: data.nomDeclarante },
+      { label: "Vínculo Declarante", value: data.vinculoDeclarante },
+      { label: "Dirección", value: data.desDireccion },
+      { label: "Departamento", value: data.departamento },
+      { label: "Provincia", value: data.provincia },
+      { label: "Distrito", value: data.distrito },
+      { label: "Código Postal", value: data.ubicacion?.codigo_postal },
+      { label: "Ubigeo (RENIEC)", value: data.ubicacion?.ubigeo_reniec },
+      { label: "Ubigeo (SUNAT/INEI)", value: data.ubicacion?.ubigeo_inei },
+      { label: "Dígito Verificación", value: data.digitoVerificacion },
     ];
 
-    let y = 80;
-    lines.forEach(([label, value]) => {
-      ctx.fillText(label, 220, y);
-      ctx.fillText(value || '-', 400, y);
+    // Impresión de datos
+    let y = 100;
+    for (const campo of campos) {
+      imagen.print(fontBold, 20, y, `${campo.label}:`);
+      imagen.print(font, 280, y, `${campo.value || "-"}`);
       y += 30;
-    });
+      if (y > 1200) break;
+    }
 
     // Guardar imagen
-    const fileName = `ficha-${dni}.png`;
-    const filePath = `./public/${fileName}`;
-    const out = fs.createWriteStream(filePath);
-    const stream = canvas.createPNGStream();
-    stream.pipe(out);
-    out.on('finish', () => {
-      res.json({ success: true, url: `/` + fileName });
-    });
+    const nombreArchivo = `${uuidv4()}.png`;
+    const rutaImagen = path.join(PUBLIC_DIR, nombreArchivo);
+    await imagen.writeAsync(rutaImagen);
 
+    const url = `${req.protocol}://${req.get("host")}/public/${nombreArchivo}`;
+    res.json({ message: "Ficha generada", url });
   } catch (error) {
     console.error(error);
-    res.status(500).send('Error generando ficha');
+    res.status(500).json({ error: "Error al generar la ficha", detalle: error.message });
   }
 });
+
+app.use("/public", express.static(PUBLIC_DIR));
 
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
