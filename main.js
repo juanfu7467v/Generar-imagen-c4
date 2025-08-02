@@ -1,86 +1,53 @@
-const express = require('express');
-const fs = require('fs');
-const fetch = require('node-fetch');
-const { createCanvas } = require('canvas');
-const path = require('path');
+const express = require("express");
+const axios = require("axios");
+const Jimp = require("jimp");
+const { v4: uuidv4 } = require("uuid");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const PUBLIC_DIR = path.join(__dirname, "public");
+if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR);
 
-app.use('/public', express.static('public'));
-
-app.get('/generar-ficha', async (req, res) => {
-  const dni = req.query.dni;
+app.get("/generar-ficha", async (req, res) => {
+  const { dni } = req.query;
   if (!dni) return res.status(400).json({ error: "Falta el parámetro DNI" });
 
   try {
-    const apiURL = `https://poxy-production.up.railway.app/reniec?dni=${dni}&source=database`;
-    const response = await fetch(apiURL);
-    const data = await response.json();
+    const response = await axios.get(`https://poxy-production.up.railway.app/reniec?dni=${dni}`);
+    const data = response.data?.result;
+    if (!data) return res.status(404).json({ error: "No se encontró información para el DNI ingresado." });
 
-    if (!data || !data.dni || data.error) {
-      return res.status(404).json({ error: "No se encontró información para el DNI ingresado." });
-    }
-
-    // Crear imagen tipo ficha RENIEC
-    const canvas = createCanvas(800, 1200);
-    const ctx = canvas.getContext('2d');
-
-    // Fondo blanco
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, 800, 1200);
+    const imagen = new Jimp(800, 1100, "#ffffff");
+    const font = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
 
     // Título
-    ctx.fillStyle = "#000";
-    ctx.font = "bold 28px Arial";
-    ctx.fillText("FICHA RENIEC - CONSULTA C4", 200, 50);
+    imagen.print(font, 10, 10, "FICHA RENIEC C4 - DNI: " + dni);
 
-    ctx.font = "20px Arial";
-    let y = 100;
-
-    function agregarCampo(label, valor) {
-      ctx.fillText(`${label}: ${valor || 'NO DISPONIBLE'}`, 50, y);
-      y += 40;
+    // Mostrar datos (hasta 45 campos para mayor detalle)
+    const campos = Object.entries(data);
+    let y = 40;
+    for (const [key, value] of campos) {
+      let texto = `${key}: ${typeof value === "object" ? JSON.stringify(value) : value}`;
+      imagen.print(font, 10, y, texto);
+      y += 22;
     }
 
-    agregarCampo("DNI", data.dni);
-    agregarCampo("Nombres Completos", `${data.apellido_paterno} ${data.apellido_materno}, ${data.nombres}`);
-    agregarCampo("Sexo", data.sexo);
-    agregarCampo("Fecha de Nacimiento", data.fecha_nacimiento);
-    agregarCampo("Estado Civil", data.estado_civil);
-    agregarCampo("Grado de Instrucción", data.grado_instruccion);
-    agregarCampo("Nombre del Padre", data.nombres_padre);
-    agregarCampo("Nombre de la Madre", data.nombres_madre);
-    agregarCampo("Departamento", data.departamento);
-    agregarCampo("Provincia", data.provincia);
-    agregarCampo("Distrito", data.distrito);
-    agregarCampo("Dirección", data.direccion);
-    agregarCampo("Fecha de Emisión", data.fecha_emision);
-    agregarCampo("Fecha de Caducidad", data.fecha_caducidad);
-    agregarCampo("Restricciones", data.restricciones);
-    agregarCampo("Grupo de Votación", data.grupo_votacion);
-    agregarCampo("Ubigeo", data.ubigeo);
-    agregarCampo("Prefijo Ubigeo", data.prefijo_ubigeo);
-    agregarCampo("Código Verificador", data.digito_verificador);
+    // Guardar imagen en carpeta /public
+    const nombreArchivo = `${uuidv4()}.png`;
+    const rutaImagen = path.join(PUBLIC_DIR, nombreArchivo);
+    await imagen.writeAsync(rutaImagen);
 
-    // Guardar imagen en public/
-    const fileName = `${dni}_ficha_reniec.png`;
-    const filePath = path.join(__dirname, 'public', fileName);
-    const out = fs.createWriteStream(filePath);
-    const stream = canvas.createPNGStream();
-    stream.pipe(out);
-
-    out.on('finish', () => {
-      const url = `${req.protocol}://${req.get('host')}/public/${fileName}`;
-      res.json({ message: "Ficha RENIEC generada", url });
-    });
-
+    const url = `${req.protocol}://${req.get("host")}/public/${nombreArchivo}`;
+    res.json({ message: "Imagen generada", url });
   } catch (error) {
-    console.error("Error:", error);
-    res.status(500).json({ error: "Ocurrió un error al generar la ficha." });
+    res.status(500).json({ error: "Error al generar la ficha", detalle: error.message });
   }
 });
 
+app.use("/public", express.static(PUBLIC_DIR));
+
 app.listen(PORT, () => {
-  console.log(`Servidor corriendo en http://localhost:${PORT}`);
+  console.log(`Servidor escuchando en http://localhost:${PORT}`);
 });
