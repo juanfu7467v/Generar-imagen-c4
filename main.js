@@ -11,7 +11,7 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR);
 
 const LOGO_RENEC_PATH = path.join(__dirname, "logo_reniec.png");
-const APP_ICON_URL = "https://www.socialcreator.com/srv/imgs/gen/79554_icohome.png";
+const APP_ICON_URL = "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjZtu4kKYCxbIje6wHJJKqAFRhmc4D3KzX6eW9I5Jr-PaWOm1kl2OMGJ4MUFvdUDnpR6MOs8Ffsem2fwiIXHgPNINo-8vLbVCgqgCJ7tEj-6lykSjBpxb9HyNtHZAlkfVkR9q7i9xV1cqPAIhy6B_Xifh4yAUQUlG4doZKk41YwDmkp7ivabW8-GV5oSt-G/s511/1000016813.png";
 
 // Función para generar marcas de agua
 const generarMarcaDeAgua = async (imagen) => {
