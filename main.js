@@ -1,3 +1,6 @@
+manteniendo su funcionamiento actual sin canvas por qué lo estoy haciendo en raliway de todo el archivo podrías hacer que el diseño de la imagen sea muy idéntica a una ficha RENIEC con sus marcas de agua logo de RENIEC todos los parecidos posibles y me das el archivo modidicados con el diseño completopara copiar y pegar porfa 
+
+
 const express = require("express");
 const axios = require("axios");
 const Jimp = require("jimp");
