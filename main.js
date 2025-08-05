@@ -10,8 +10,10 @@ const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, "public");
 if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR);
 
+// Ruta del logo de RENIEC y del icono de la app (ajusta las rutas si es necesario)
 const APP_ICON_URL = "https://www.socialcreator.com/srv/imgs/gen/79554_icohome.png";
 
+// Función para generar marcas de agua
 const generarMarcaDeAgua = async (imagen) => {
     const marcaAgua = await Jimp.read(imagen.bitmap.width, imagen.bitmap.height, 0x00000000);
     const fontWatermark = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
@@ -33,6 +35,7 @@ const generarMarcaDeAgua = async (imagen) => {
     return marcaAgua;
 };
 
+// Función para imprimir texto que se ajusta a una nueva línea si es demasiado largo
 const printWrappedText = (image, font, x, y, maxWidth, text, lineHeight) => {
     const words = text.split(' ');
     let line = '';
@@ -62,26 +65,28 @@ app.get("/generar-ficha", async (req, res) => {
         const data = response.data?.result;
         if (!data) return res.status(404).json({ error: "No se encontró información para el DNI ingresado." });
 
-        const imagen = new Jimp(1080, 1920, "#1F325E"); // Fondo azul oscuro
+        const imagen = new Jimp(1080, 1920, "#003366"); // Fondo azul oscuro
         const marginHorizontal = 50;
-        const textColumnLeft = marginHorizontal;
-        const textColumnRight = imagen.bitmap.width / 2 + 50; // Posición de la segunda columna
-        const columnWidth = imagen.bitmap.width / 2 - marginHorizontal * 1.5;
+        const columnLeftX = marginHorizontal;
+        const columnRightX = imagen.bitmap.width / 2 + 30; // Posición de la columna derecha
+        const columnWidthLeft = imagen.bitmap.width / 2 - 2 * marginHorizontal; // Ancho de la columna izquierda
+        const columnWidthRight = imagen.bitmap.width / 2 - marginHorizontal - 30; // Ancho de la columna derecha
         const lineHeight = 50;
-        let yLeft = 50;
-        let yRight = 50;
+        
+        let yLeft = 50; // Posición vertical para la columna izquierda
+        let yRight = 50; // Posición vertical para la columna derecha
 
+        // Cargar fuentes en blanco
         const fontTitle = await Jimp.loadFont(Jimp.FONT_SANS_64_WHITE);
         const fontHeading = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
         const font = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
         const fontBold = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
-        const fontHeadingLight = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK); // Para fondo claro
 
         // Superponer la marca de agua
         const marcaAgua = await generarMarcaDeAgua(imagen);
         imagen.composite(marcaAgua, 0, 0);
 
-        // Icono principal
+        // Icono principal (reemplaza el título)
         try {
             const iconBuffer = (await axios({ url: APP_ICON_URL, responseType: 'arraybuffer' })).data;
             const mainIcon = await Jimp.read(iconBuffer);
@@ -96,7 +101,6 @@ app.get("/generar-ficha", async (req, res) => {
         }
 
         // Foto del DNI
-        let fotoY = yLeft;
         if (data.imagenes?.foto) {
             const bufferFoto = Buffer.from(data.imagenes.foto, 'base64');
             const foto = await Jimp.read(bufferFoto);
@@ -104,92 +108,99 @@ app.get("/generar-ficha", async (req, res) => {
             const fotoHeight = 400;
             foto.resize(fotoWidth, fotoHeight);
             const fotoX = imagen.bitmap.width - marginHorizontal - fotoWidth;
-            imagen.composite(foto, fotoX, yLeft);
-            yLeft += fotoHeight + 50;
+            imagen.composite(foto, fotoX, yRight);
+            yRight += fotoHeight + 40; // Ajustar la posición vertical para la columna derecha debajo de la foto
         }
-        
-        yRight = yLeft;
 
-        const printField = (label, value, x, y) => {
-            const labelX = x;
+        // Función auxiliar para imprimir campos en la columna izquierda
+        const printFieldLeft = (label, value) => {
+            const labelX = columnLeftX;
             const valueX = labelX + 250;
-            const maxWidth = columnWidth - 250;
-            imagen.print(fontBold, labelX, y, `${label}:`);
-            const newY = printWrappedText(imagen, font, valueX, y, maxWidth, `${value || "-"}`, lineHeight);
-            return newY;
+            const maxWidth = columnWidthLeft - (valueX - labelX);
+
+            imagen.print(fontBold, labelX, yLeft, `${label}:`);
+            const newY = printWrappedText(imagen, font, valueX, yLeft, maxWidth, `${value || "-"}`, lineHeight);
+            yLeft = newY;
+        };
+
+        // Función auxiliar para imprimir campos en la columna derecha
+        const printFieldRight = (label, value) => {
+            const labelX = columnRightX;
+            const valueX = labelX + 250;
+            const maxWidth = columnWidthRight - (valueX - labelX);
+
+            imagen.print(fontBold, labelX, yRight, `${label}:`);
+            const newY = printWrappedText(imagen, font, valueX, yRight, maxWidth, `${value || "-"}`, lineHeight);
+            yRight = newY;
         };
 
         // --- Datos Personales (Columna Izquierda) ---
-        imagen.print(fontHeading, textColumnLeft, yLeft, "Datos Personales");
+        imagen.print(fontHeading, columnLeftX, yLeft, "Datos Personales");
         yLeft += 50;
-        yLeft = printField("DNI", data.nuDni, textColumnLeft, yLeft);
-        yLeft = printField("Primer Apellido", data.apePaterno, textColumnLeft, yLeft);
-        yLeft = printField("Segundo Apellido", data.apeMaterno, textColumnLeft, yLeft);
-        yLeft = printField("Prenombres", data.preNombres, textColumnLeft, yLeft);
-        yLeft = printField("Nacimiento", data.feNacimiento, textColumnLeft, yLeft);
-        yLeft = printField("Sexo", data.sexo, textColumnLeft, yLeft);
-        yLeft = printField("Estado Civil", data.estadoCivil, textColumnLeft, yLeft);
-        yLeft = printField("Estatura", `${data.estatura || "-"} cm`, textColumnLeft, yLeft);
-        yLeft = printField("Grado de Instrucción", data.gradoInstruccion, textColumnLeft, yLeft);
-        yLeft = printField("Restricción", data.deRestriccion || "NINGUNA", textColumnLeft, yLeft);
-        yLeft = printField("Donación de Órganos", data.donaOrganos, textColumnLeft, yLeft);
-        yLeft += 30;
-
-        // --- Datos de Dirección (Columna Izquierda) ---
-        imagen.print(fontHeading, textColumnLeft, yLeft, "Datos de Dirección");
-        yLeft += 50;
-        yLeft = printField("Dirección", data.desDireccion, textColumnLeft, yLeft);
-        yLeft = printField("Departamento", data.depaDireccion, textColumnLeft, yLeft);
-        yLeft = printField("Provincia", data.provDireccion, textColumnLeft, yLeft);
-        yLeft = printField("Distrito", data.distDireccion, textColumnLeft, yLeft);
+        printFieldLeft("DNI", data.nuDni);
+        printFieldLeft("Apellidos", `${data.apePaterno} ${data.apeMaterno} ${data.apCasada || ''}`.trim());
+        printFieldLeft("Prenombres", data.preNombres);
+        printFieldLeft("Nacimiento", data.feNacimiento);
+        printFieldLeft("Sexo", data.sexo);
+        printFieldLeft("Estado Civil", data.estadoCivil);
+        printFieldLeft("Estatura", `${data.estatura || "-"} cm`);
+        printFieldLeft("Grado Inst.", data.gradoInstruccion);
+        printFieldLeft("Restricción", data.deRestriccion || "NINGUNA");
+        printFieldLeft("Donación", data.donaOrganos);
         yLeft += 30;
 
         // --- Información Adicional (Columna Izquierda) ---
-        imagen.print(fontHeading, textColumnLeft, yLeft, "Información Adicional");
+        imagen.print(fontHeading, columnLeftX, yLeft, "Información Adicional");
         yLeft += 50;
-        yLeft = printField("Fecha de Inscripción", data.feInscripcion, textColumnLeft, yLeft);
-        yLeft = printField("Fecha de Emisión", data.feEmision, textColumnLeft, yLeft);
-        yLeft = printField("Fecha de Caducidad", data.feCaducidad, textColumnLeft, yLeft);
-        yLeft = printField("Fecha de Fallecimiento", data.feFallecimiento || "-", textColumnLeft, yLeft);
-        yLeft = printField("Nombre del Padre", data.nomPadre, textColumnLeft, yLeft);
-        yLeft = printField("Nombre de la Madre", data.nomMadre, textColumnLeft, yLeft);
+        printFieldLeft("Fecha Emisión", data.feEmision);
+        printFieldLeft("Fecha Inscripción", data.feInscripcion);
+        printFieldLeft("Fecha Caducidad", data.feCaducidad);
+        printFieldLeft("Fecha Fallecimiento", data.feFallecimiento || "-");
+        printFieldLeft("Padre", data.nomPadre);
+        printFieldLeft("Madre", data.nomMadre);
+        yLeft += 30;
 
-        // --- Ubicación (Columna Derecha) ---
-        let ubicacionY = fotoY + 450;
-        imagen.print(fontHeading, textColumnRight, ubicacionY, "Ubicación");
-        ubicacionY += 50;
-        ubicacionY = printField("Ubigeo Reniec", data.ubicacion?.ubigeo_reniec, textColumnRight, ubicacionY);
-        ubicacionY = printField("Ubigeo INEI", data.ubicacion?.ubigeo_inei, textColumnRight, ubicacionY);
-        ubicacionY = printField("Ubigeo Sunat", data.ubicacion?.ubigeo_sunat, textColumnRight, ubicacionY);
-        ubicacionY = printField("Cód. Postal", data.ubicacion?.codigo_postal, textColumnRight, ubicacionY);
-        ubicacionY += 30;
-        
-        // --- Otros Datos (Columna Derecha) ---
-        let otrosDatosY = ubicacionY;
-        imagen.print(fontHeading, textColumnRight, otrosDatosY, "Otros Datos");
-        otrosDatosY += 50;
-        otrosDatosY = printField("País", data.pais || "-", textColumnRight, otrosDatosY);
-        otrosDatosY = printField("Grupo de Votación", data.gpVotacion || "-", textColumnRight, otrosDatosY);
-        otrosDatosY = printField("Teléfono", data.telefono || "-", textColumnRight, otrosDatosY);
-        otrosDatosY = printField("Email", data.email || "-", textColumnRight, otrosDatosY);
-        otrosDatosY = printField("Multas Electorales", data.multasElectorales || "-", textColumnRight, otrosDatosY);
-        otrosDatosY = printField("Multa Admin", data.multaAdmin || "-", textColumnRight, otrosDatosY);
-        otrosDatosY = printField("Fecha de Act.", data.feActualizacion || "-", textColumnRight, otrosDatosY);
-        otrosDatosY = printField("Cancelación", data.cancelacion || "-", textColumnRight, otrosDatosY);
+        // --- Datos de Dirección (Columna Izquierda) ---
+        imagen.print(fontHeading, columnLeftX, yLeft, "Datos de Dirección");
+        yLeft += 50;
+        printFieldLeft("Dirección", data.desDireccion);
+        printFieldLeft("Departamento", data.depaDireccion);
+        printFieldLeft("Provincia", data.provDireccion);
+        printFieldLeft("Distrito", data.distDireccion);
 
+        // --- Ubicación (Columna Derecha, debajo de la foto) ---
+        imagen.print(fontHeading, columnRightX, yRight, "Ubicación");
+        yRight += 50;
+        printFieldRight("Ubigeo Reniec", data.ubicacion?.ubigeo_reniec);
+        printFieldRight("Ubigeo INEI", data.ubicacion?.ubigeo_inei);
+        printFieldRight("Ubigeo Sunat", data.ubicacion?.ubigeo_sunat);
+        printFieldRight("Código Postal", data.ubicacion?.codigo_postal);
+        yRight += 30;
+
+        // --- Otros Datos (Columna Derecha, debajo de la foto) ---
+        imagen.print(fontHeading, columnRightX, yRight, "Otros Datos");
+        yRight += 50;
+        printFieldRight("País", data.pais || "-");
+        printFieldRight("Grupo Votación", data.gpVotacion || "-");
+        printFieldRight("Teléfono", data.telefono || "-");
+        printFieldRight("Email", data.email || "-");
+        printFieldRight("Multas Electorales", data.multasElectorales || "-");
+        printFieldRight("Multa Admin", data.multaAdmin || "-");
+        printFieldRight("Fecha Actualización", data.feActualizacion || "-");
+        printFieldRight("Cancelación", data.cancelacion || "-");
 
         // Pie de página
-        let finalY = Math.max(yLeft, otrosDatosY) + 50;
+        const footerY = imagen.bitmap.height - 100;
         imagen.print(
             font,
             marginHorizontal,
-            finalY,
+            footerY,
             "Fuente: www.socialcreator.com/consultapeapk"
         );
         imagen.print(
             font,
             marginHorizontal,
-            finalY + 30,
+            footerY + 30,
             "Esta imagen es solo informativa. No representa un documento oficial ni tiene validez legal."
         );
 
