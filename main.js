@@ -82,8 +82,9 @@ app.get("/generar-ficha", async (req, res) => {
         // Cargar fuentes en blanco
         const fontTitle = await Jimp.loadFont(Jimp.FONT_SANS_64_WHITE);
         const fontHeading = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
-        const fontData = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
+        const font = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
         const fontBold = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
+        const fontData = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
 
         // Superponer la marca de agua
         const marcaAgua = await generarMarcaDeAgua(imagen);
@@ -158,6 +159,17 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("Donación", data.donaOrganos);
         yLeft += headingSpacing;
 
+        // --- Información Adicional (Columna Izquierda) ---
+        imagen.print(fontHeading, columnLeftX, yLeft, "Información Adicional");
+        yLeft += headingSpacing;
+        printFieldLeft("Fecha Emisión", data.feEmision);
+        printFieldLeft("Fecha Inscripción", data.feInscripcion);
+        printFieldLeft("Fecha Caducidad", data.feCaducidad);
+        printFieldLeft("Fecha Fallecimiento", data.feFallecimiento || "-");
+        printFieldLeft("Padre", data.nomPadre);
+        printFieldLeft("Madre", data.nomMadre);
+        yLeft += headingSpacing;
+
         // --- Datos de Dirección (Columna Izquierda) ---
         imagen.print(fontHeading, columnLeftX, yLeft, "Datos de Dirección");
         yLeft += headingSpacing;
@@ -166,8 +178,8 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("Provincia", data.provDireccion);
         printFieldLeft("Distrito", data.distDireccion);
         yLeft += headingSpacing;
-        
-        // --- Ubicación (Columna Izquierda) ---
+
+        // --- Ubicación (Columna Izquierda, debajo de Dirección) ---
         imagen.print(fontHeading, columnLeftX, yLeft, "Ubicación");
         yLeft += headingSpacing;
         printFieldLeft("Ubigeo Reniec", data.ubicacion?.ubigeo_reniec);
