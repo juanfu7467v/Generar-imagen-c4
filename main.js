@@ -68,13 +68,14 @@ app.get("/generar-ficha", async (req, res) => {
         const imagen = new Jimp(1080, 1920, "#003366"); // Fondo azul oscuro
         const marginHorizontal = 50;
         const columnLeftX = marginHorizontal;
-        const columnRightX = imagen.bitmap.width / 2 + 30; // Posición de la columna derecha
-        const columnWidthLeft = imagen.bitmap.width / 2 - 2 * marginHorizontal; // Ancho de la columna izquierda
-        const columnWidthRight = imagen.bitmap.width / 2 - marginHorizontal - 30; // Ancho de la columna derecha
+        const columnRightX = imagen.bitmap.width / 2 + 50; // Posición de la columna derecha
+        const columnWidthLeft = imagen.bitmap.width / 2 - marginHorizontal - 25; // Ancho de la columna izquierda
+        const columnWidthRight = imagen.bitmap.width / 2 - marginHorizontal - 25; // Ancho de la columna derecha
         const lineHeight = 50;
         
-        let yLeft = 50; // Posición vertical para la columna izquierda
-        let yRight = 50; // Posición vertical para la columna derecha
+        let yStartContent = 300; // Posición vertical de inicio para las columnas
+        let yLeft = yStartContent; // Posición vertical para la columna izquierda
+        let yRight = yStartContent; // Posición vertical para la columna derecha
 
         // Cargar fuentes en blanco
         const fontTitle = await Jimp.loadFont(Jimp.FONT_SANS_64_WHITE);
@@ -92,25 +93,32 @@ app.get("/generar-ficha", async (req, res) => {
             const mainIcon = await Jimp.read(iconBuffer);
             mainIcon.resize(300, Jimp.AUTO);
             const iconX = (imagen.bitmap.width - mainIcon.bitmap.width) / 2;
-            imagen.composite(mainIcon, iconX, yLeft);
-            yLeft += mainIcon.bitmap.height + 40;
+            imagen.composite(mainIcon, iconX, 50);
         } catch (error) {
             console.error("Error al cargar el icono:", error);
-            imagen.print(fontTitle, marginHorizontal, yLeft, "Consulta Ciudadana");
-            yLeft += 70;
+            imagen.print(fontTitle, marginHorizontal, 50, "Consulta Ciudadana");
         }
-
-        // Foto del DNI
+        
+        // Dibuja una línea separadora vertical
+        const separatorX = imagen.bitmap.width / 2;
+        const separatorYStart = yStartContent - 50;
+        const separatorYEnd = imagen.bitmap.height - 150;
+        new Jimp(2, separatorYEnd - separatorYStart, 0xFFFFFFFF, (err, line) => {
+            if (!err) imagen.composite(line, separatorX, separatorYStart);
+        });
+        
+        // Foto del DNI (parte superior de la columna derecha)
         if (data.imagenes?.foto) {
             const bufferFoto = Buffer.from(data.imagenes.foto, 'base64');
             const foto = await Jimp.read(bufferFoto);
             const fotoWidth = 350;
             const fotoHeight = 400;
             foto.resize(fotoWidth, fotoHeight);
-            const fotoX = imagen.bitmap.width - marginHorizontal - fotoWidth;
-            imagen.composite(foto, fotoX, yRight);
-            yRight += fotoHeight + 40; // Ajustar la posición vertical para la columna derecha debajo de la foto
+            const fotoX = columnRightX + (columnWidthRight - fotoWidth) / 2;
+            imagen.composite(foto, fotoX, yStartContent);
+            yRight += fotoHeight + 40; // Ajusta la posición para el contenido debajo de la foto
         }
+
 
         // Función auxiliar para imprimir campos en la columna izquierda
         const printFieldLeft = (label, value) => {
