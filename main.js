@@ -1,4 +1,33 @@
-,
+const express = require("express");
+const axios = require("axios");
+const Jimp = require("jimp");
+const { v4: uuidv4 } = require("uuid");
+const fs = require("fs");
+const path = require("path");
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const PUBLIC_DIR = path.join(__dirname, "public");
+if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR);
+
+// Ruta del logo de RENIEC y del icono de la app (ajusta las rutas si es necesario)
+const APP_ICON_URL = "https://www.socialcreator.com/srv/imgs/gen/79554_icohome.png";
+
+// Función para generar marcas de agua
+const generarMarcaDeAgua = async (imagen) => {
+    const marcaAgua = await Jimp.read(imagen.bitmap.width, imagen.bitmap.height, 0x00000000);
+    const fontWatermark = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
+    const text = "RENIEC";
+
+    for (let i = 0; i < imagen.bitmap.width; i += 200) {
+        for (let j = 0; j < imagen.bitmap.height; j += 100) {
+            const angle = Math.random() * 30 - 15;
+            const textImage = new Jimp(100, 50, 0x00000000);
+            textImage.print(fontWatermark, 0, 0, text);
+            textImage.rotate(angle);
+            marcaAgua.composite(textImage, i, j, {
+                mode: Jimp.BLEND_SOURCE_OVER,
+                opacitySource: 0.1,
                 opacityDest: 1
             });
         }
