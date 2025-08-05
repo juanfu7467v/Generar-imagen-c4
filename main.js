@@ -61,36 +61,40 @@ app.get("/generar-ficha", async (req, res) => {
     if (!dni) return res.status(400).json({ error: "Falta el parámetro DNI" });
 
     try {
+        // Obtenemos los datos del DNI del usuario
         const response = await axios.get(`https://poxy-production.up.railway.app/reniec?dni=${dni}`);
         const data = response.data?.result;
         if (!data) return res.status(404).json({ error: "No se encontró información para el DNI ingresado." });
 
+        // Creación de la imagen base
         const imagen = new Jimp(1080, 1920, "#003366"); // Fondo azul oscuro
+
+        // Definición de márgenes y espaciados
         const marginHorizontal = 50;
         const columnLeftX = marginHorizontal;
-        const columnRightX = imagen.bitmap.width / 2 + 50; // Posición de la columna derecha
-        const columnWidthLeft = imagen.bitmap.width / 2 - marginHorizontal - 25; // Ancho de la columna izquierda
-        const columnWidthRight = imagen.bitmap.width / 2 - marginHorizontal - 25; // Ancho de la columna derecha
+        const columnRightX = imagen.bitmap.width / 2 + 50;
+        const columnWidthLeft = imagen.bitmap.width / 2 - marginHorizontal - 25;
+        const columnWidthRight = imagen.bitmap.width / 2 - marginHorizontal - 25;
         
-        const lineHeight = 40; // Espaciado entre líneas reducido
+        const lineHeight = 40; // Espaciado entre líneas reducido para ahorrar espacio
         const headingSpacing = 50; // Espaciado para las categorías
 
-        let yStartContent = 300; // Posición vertical de inicio para las columnas
-        let yLeft = yStartContent; // Posición vertical para la columna izquierda
-        let yRight = yStartContent; // Posición vertical para la columna derecha
+        // Posiciones iniciales para las columnas
+        let yStartContent = 300;
+        let yLeft = yStartContent;
+        let yRight = yStartContent;
 
-        // Cargar fuentes en blanco
+        // Cargar fuentes en blanco (para el contraste)
         const fontTitle = await Jimp.loadFont(Jimp.FONT_SANS_64_WHITE);
         const fontHeading = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
-        const font = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
         const fontBold = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
         const fontData = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
 
-        // Superponer la marca de agua
+        // Superponer la marca de agua de RENIEC
         const marcaAgua = await generarMarcaDeAgua(imagen);
         imagen.composite(marcaAgua, 0, 0);
 
-        // Icono principal (reemplaza el título)
+        // Icono principal en la parte superior
         try {
             const iconBuffer = (await axios({ url: APP_ICON_URL, responseType: 'arraybuffer' })).data;
             const mainIcon = await Jimp.read(iconBuffer);
@@ -110,7 +114,7 @@ app.get("/generar-ficha", async (req, res) => {
             if (!err) imagen.composite(line, separatorX, separatorYStart);
         });
         
-        // Foto del DNI (parte superior de la columna derecha)
+        // Foto del DNI en la columna derecha
         if (data.imagenes?.foto) {
             const bufferFoto = Buffer.from(data.imagenes.foto, 'base64');
             const foto = await Jimp.read(bufferFoto);
@@ -119,7 +123,7 @@ app.get("/generar-ficha", async (req, res) => {
             foto.resize(fotoWidth, fotoHeight);
             const fotoX = columnRightX + (columnWidthRight - fotoWidth) / 2;
             imagen.composite(foto, fotoX, yStartContent);
-            yRight += fotoHeight + 40; // Ajusta la posición para el contenido debajo de la foto
+            yRight += fotoHeight + headingSpacing; // Siguiente contenido debajo de la foto
         }
 
         // Función auxiliar para imprimir campos en la columna izquierda
@@ -130,7 +134,7 @@ app.get("/generar-ficha", async (req, res) => {
 
             imagen.print(fontBold, labelX, yLeft, `${label}:`);
             const newY = printWrappedText(imagen, fontData, valueX, yLeft, maxWidth, `${value || "-"}`, lineHeight);
-            yLeft = newY - 10; // Reducir el espacio vertical entre los datos
+            yLeft = newY - 10;
         };
 
         // Función auxiliar para imprimir campos en la columna derecha
@@ -141,10 +145,11 @@ app.get("/generar-ficha", async (req, res) => {
 
             imagen.print(fontBold, labelX, yRight, `${label}:`);
             const newY = printWrappedText(imagen, fontData, valueX, yRight, maxWidth, `${value || "-"}`, lineHeight);
-            yRight = newY - 10; // Reducir el espacio vertical entre los datos
+            yRight = newY - 10;
         };
 
-        // --- Datos Personales (Columna Izquierda) ---
+        // --- COLUMNA IZQUIERDA ---
+        // Sección: Datos Personales
         imagen.print(fontHeading, columnLeftX, yLeft, "Datos Personales");
         yLeft += headingSpacing;
         printFieldLeft("DNI", data.nuDni);
@@ -159,7 +164,7 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("Donación", data.donaOrganos);
         yLeft += headingSpacing;
 
-        // --- Información Adicional (Columna Izquierda) ---
+        // Sección: Información Adicional
         imagen.print(fontHeading, columnLeftX, yLeft, "Información Adicional");
         yLeft += headingSpacing;
         printFieldLeft("Fecha Emisión", data.feEmision);
@@ -170,7 +175,7 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("Madre", data.nomMadre);
         yLeft += headingSpacing;
 
-        // --- Datos de Dirección (Columna Izquierda) ---
+        // Sección: Datos de Dirección
         imagen.print(fontHeading, columnLeftX, yLeft, "Datos de Dirección");
         yLeft += headingSpacing;
         printFieldLeft("Dirección", data.desDireccion);
@@ -179,7 +184,7 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("Distrito", data.distDireccion);
         yLeft += headingSpacing;
 
-        // --- Ubicación (Columna Izquierda, debajo de Dirección) ---
+        // Sección: Ubicación
         imagen.print(fontHeading, columnLeftX, yLeft, "Ubicación");
         yLeft += headingSpacing;
         printFieldLeft("Ubigeo Reniec", data.ubicacion?.ubigeo_reniec);
@@ -188,7 +193,8 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("Código Postal", data.ubicacion?.codigo_postal);
         yLeft += headingSpacing;
 
-        // --- Otros Datos (Columna Derecha, debajo de la foto) ---
+        // --- COLUMNA DERECHA ---
+        // Sección: Otros Datos (debajo de la foto)
         imagen.print(fontHeading, columnRightX, yRight, "Otros Datos");
         yRight += headingSpacing;
         printFieldRight("País", data.pais || "-");
@@ -216,7 +222,7 @@ app.get("/generar-ficha", async (req, res) => {
             "Esta imagen es solo informativa. No representa un documento oficial ni tiene validez legal."
         );
 
-        // Guardar imagen
+        // Guardar la imagen generada
         const nombreArchivo = `${uuidv4()}.png`;
         const rutaImagen = path.join(PUBLIC_DIR, nombreArchivo);
         await imagen.writeAsync(rutaImagen);
