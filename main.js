@@ -11,7 +11,7 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR);
 
 const LOGO_RENEC_PATH = path.join(__dirname, "logo_reniec.png");
-const APP_ICON_URL = "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjZtu4kKYCxbIje6wHJJKqAFRhmc4D3KzX6eW9I5Jr-PaWOm1kl2OMGJ4MUFvdUDnpR6MOs8Ffsem2fwiIXHgPNINo-8vLbVCgqgCJ7tEj-6lykSjBpxb9HyNtHZAlkfVkR9q7i9xV1cqPAIhy6B_Xifh4yAUQUlG4doZKk41YwDmkp7ivabW8-GV5oSt-G/s511/1000016813.png";
+const APP_ICON_URL = "https://img.utdstc.com/icon/931/722/9317221e8277cdfa4d3cf2891090ef5e83412768564665bedebb03f8f86dc5ae:200";
 
 // Función para generar marcas de agua
 const generarMarcaDeAgua = async (imagen) => {
@@ -44,26 +44,28 @@ app.get("/generar-ficha", async (req, res) => {
     const data = response.data?.result;
     if (!data) return res.status(404).json({ error: "No se encontró información para el DNI ingresado." });
 
-    const imagen = new Jimp(1000, 1500, "#f0f2f5"); // Tamaño y color de fondo
-    const fontTitle = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK);
-    const fontHeading = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
-    const font = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
+    const imagen = new Jimp(1000, 1600, "#CCCCCC");
+
+    const fontTitle = await Jimp.loadFont(Jimp.FONT_SANS_64_BLACK);
+    const fontHeading = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK);
+    const font = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK);
+    const fontBold = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK);
 
     // Superponer la marca de agua
     const marcaAgua = await generarMarcaDeAgua(imagen);
     imagen.composite(marcaAgua, 0, 0);
 
     // Título principal
-    imagen.print(fontTitle, 250, 50, "Resultado - consulta pe ");
+    imagen.print(fontTitle, 250, 50, "Resultado - Consulta PE");
 
-    // Logo de la RENIEC
+    // Logo RENIEC
     if (fs.existsSync(LOGO_RENEC_PATH)) {
       const logoReniec = await Jimp.read(LOGO_RENEC_PATH);
-      logoReniec.resize(Jimp.AUTO, 80);
+      logoReniec.resize(Jimp.AUTO, 100);
       imagen.composite(logoReniec, 50, 40);
     }
 
-    // Icono de la aplicación
+    // Icono de la web
     const iconBuffer = (await axios({ url: APP_ICON_URL, responseType: 'arraybuffer' })).data;
     const appIcon = await Jimp.read(iconBuffer);
     appIcon.resize(100, Jimp.AUTO);
@@ -73,12 +75,12 @@ app.get("/generar-ficha", async (req, res) => {
     if (data.imagenes?.foto) {
       const bufferFoto = Buffer.from(data.imagenes.foto, 'base64');
       const foto = await Jimp.read(bufferFoto);
-      foto.resize(250, 300); // Tamaño de foto más grande
-      imagen.composite(foto, 700, 150);
+      foto.resize(300, 350);
+      imagen.composite(foto, 680, 170);
     }
 
-    // Datos personales
-    let y = 150;
+    // Datos Personales
+    let y = 170;
     const camposPersonales = [
       { label: "DNI", value: data.nuDni },
       { label: "Nombres completos", value: `${data.preNombres} ${data.apePaterno} ${data.apeMaterno}` },
@@ -91,16 +93,16 @@ app.get("/generar-ficha", async (req, res) => {
       { label: "Restricción", value: data.deRestriccion || "NINGUNA" },
     ];
     imagen.print(fontHeading, 50, y, "Datos Personales");
-    y += 40;
+    y += 50;
     for (const campo of camposPersonales) {
       imagen.print(fontBold, 50, y, `${campo.label}:`);
-      imagen.print(font, 350, y, `${campo.value || "-"}`);
-      y += 30;
+      imagen.print(font, 400, y, `${campo.value || "-"}`);
+      y += 40;
     }
 
-    y += 30; // Espacio entre secciones
+    y += 40;
 
-    // Datos de la dirección
+    // Dirección
     const camposDireccion = [
       { label: "Dirección", value: data.desDireccion },
       { label: "Departamento", value: data.departamento },
@@ -108,16 +110,16 @@ app.get("/generar-ficha", async (req, res) => {
       { label: "Distrito", value: data.distrito },
     ];
     imagen.print(fontHeading, 50, y, "Datos de Dirección");
-    y += 40;
+    y += 50;
     for (const campo of camposDireccion) {
       imagen.print(fontBold, 50, y, `${campo.label}:`);
-      imagen.print(font, 350, y, `${campo.value || "-"}`);
-      y += 30;
+      imagen.print(font, 400, y, `${campo.value || "-"}`);
+      y += 40;
     }
 
-    y += 30; // Espacio entre secciones
+    y += 40;
 
-    // Otros datos
+    // Información Adicional
     const camposOtros = [
       { label: "Fecha de Emisión", value: data.feEmision },
       { label: "Fecha de Inscripción", value: data.feInscripcion },
@@ -126,12 +128,28 @@ app.get("/generar-ficha", async (req, res) => {
       { label: "Nombre de la Madre", value: data.nomMadre },
     ];
     imagen.print(fontHeading, 50, y, "Información Adicional");
-    y += 40;
+    y += 50;
     for (const campo of camposOtros) {
       imagen.print(fontBold, 50, y, `${campo.label}:`);
-      imagen.print(font, 350, y, `${campo.value || "-"}`);
-      y += 30;
+      imagen.print(font, 400, y, `${campo.value || "-"}`);
+      y += 40;
     }
+
+    y += 60;
+
+    // Pie de página: Fuente y descargo de responsabilidad
+    imagen.print(
+      font,
+      50,
+      imagen.bitmap.height - 100,
+      "Fuente: www.socialcreator.com/consultapeapk"
+    );
+    imagen.print(
+      font,
+      50,
+      imagen.bitmap.height - 60,
+      "Esta imagen es solo informativa. No representa un documento oficial ni tiene validez legal."
+    );
 
     // Guardar imagen
     const nombreArchivo = `${uuidv4()}.png`;
