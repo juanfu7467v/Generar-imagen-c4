@@ -71,8 +71,10 @@ app.get("/generar-ficha", async (req, res) => {
         const columnRightX = imagen.bitmap.width / 2 + 50; // Posición de la columna derecha
         const columnWidthLeft = imagen.bitmap.width / 2 - marginHorizontal - 25; // Ancho de la columna izquierda
         const columnWidthRight = imagen.bitmap.width / 2 - marginHorizontal - 25; // Ancho de la columna derecha
-        const lineHeight = 50;
         
+        const lineHeight = 40; // Espaciado entre líneas reducido
+        const headingSpacing = 50; // Espaciado para las categorías
+
         let yStartContent = 300; // Posición vertical de inicio para las columnas
         let yLeft = yStartContent; // Posición vertical para la columna izquierda
         let yRight = yStartContent; // Posición vertical para la columna derecha
@@ -82,6 +84,7 @@ app.get("/generar-ficha", async (req, res) => {
         const fontHeading = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
         const font = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
         const fontBold = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
+        const fontData = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
 
         // Superponer la marca de agua
         const marcaAgua = await generarMarcaDeAgua(imagen);
@@ -119,7 +122,6 @@ app.get("/generar-ficha", async (req, res) => {
             yRight += fotoHeight + 40; // Ajusta la posición para el contenido debajo de la foto
         }
 
-
         // Función auxiliar para imprimir campos en la columna izquierda
         const printFieldLeft = (label, value) => {
             const labelX = columnLeftX;
@@ -127,8 +129,8 @@ app.get("/generar-ficha", async (req, res) => {
             const maxWidth = columnWidthLeft - (valueX - labelX);
 
             imagen.print(fontBold, labelX, yLeft, `${label}:`);
-            const newY = printWrappedText(imagen, font, valueX, yLeft, maxWidth, `${value || "-"}`, lineHeight);
-            yLeft = newY;
+            const newY = printWrappedText(imagen, fontData, valueX, yLeft, maxWidth, `${value || "-"}`, lineHeight);
+            yLeft = newY - 10; // Reducir el espacio vertical entre los datos
         };
 
         // Función auxiliar para imprimir campos en la columna derecha
@@ -138,13 +140,13 @@ app.get("/generar-ficha", async (req, res) => {
             const maxWidth = columnWidthRight - (valueX - labelX);
 
             imagen.print(fontBold, labelX, yRight, `${label}:`);
-            const newY = printWrappedText(imagen, font, valueX, yRight, maxWidth, `${value || "-"}`, lineHeight);
-            yRight = newY;
+            const newY = printWrappedText(imagen, fontData, valueX, yRight, maxWidth, `${value || "-"}`, lineHeight);
+            yRight = newY - 10; // Reducir el espacio vertical entre los datos
         };
 
         // --- Datos Personales (Columna Izquierda) ---
         imagen.print(fontHeading, columnLeftX, yLeft, "Datos Personales");
-        yLeft += 50;
+        yLeft += headingSpacing;
         printFieldLeft("DNI", data.nuDni);
         printFieldLeft("Apellidos", `${data.apePaterno} ${data.apeMaterno} ${data.apCasada || ''}`.trim());
         printFieldLeft("Prenombres", data.preNombres);
@@ -155,39 +157,40 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("Grado Inst.", data.gradoInstruccion);
         printFieldLeft("Restricción", data.deRestriccion || "NINGUNA");
         printFieldLeft("Donación", data.donaOrganos);
-        yLeft += 30;
+        yLeft += headingSpacing;
 
         // --- Información Adicional (Columna Izquierda) ---
         imagen.print(fontHeading, columnLeftX, yLeft, "Información Adicional");
-        yLeft += 50;
+        yLeft += headingSpacing;
         printFieldLeft("Fecha Emisión", data.feEmision);
         printFieldLeft("Fecha Inscripción", data.feInscripcion);
         printFieldLeft("Fecha Caducidad", data.feCaducidad);
         printFieldLeft("Fecha Fallecimiento", data.feFallecimiento || "-");
         printFieldLeft("Padre", data.nomPadre);
         printFieldLeft("Madre", data.nomMadre);
-        yLeft += 30;
+        yLeft += headingSpacing;
 
         // --- Datos de Dirección (Columna Izquierda) ---
         imagen.print(fontHeading, columnLeftX, yLeft, "Datos de Dirección");
-        yLeft += 50;
+        yLeft += headingSpacing;
         printFieldLeft("Dirección", data.desDireccion);
         printFieldLeft("Departamento", data.depaDireccion);
         printFieldLeft("Provincia", data.provDireccion);
         printFieldLeft("Distrito", data.distDireccion);
+        yLeft += headingSpacing;
 
         // --- Ubicación (Columna Derecha, debajo de la foto) ---
         imagen.print(fontHeading, columnRightX, yRight, "Ubicación");
-        yRight += 50;
+        yRight += headingSpacing;
         printFieldRight("Ubigeo Reniec", data.ubicacion?.ubigeo_reniec);
         printFieldRight("Ubigeo INEI", data.ubicacion?.ubigeo_inei);
         printFieldRight("Ubigeo Sunat", data.ubicacion?.ubigeo_sunat);
         printFieldRight("Código Postal", data.ubicacion?.codigo_postal);
-        yRight += 30;
+        yRight += headingSpacing;
 
         // --- Otros Datos (Columna Derecha, debajo de la foto) ---
         imagen.print(fontHeading, columnRightX, yRight, "Otros Datos");
-        yRight += 50;
+        yRight += headingSpacing;
         printFieldRight("País", data.pais || "-");
         printFieldRight("Grupo Votación", data.gpVotacion || "-");
         printFieldRight("Teléfono", data.telefono || "-");
@@ -196,17 +199,18 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldRight("Multa Admin", data.multaAdmin || "-");
         printFieldRight("Fecha Actualización", data.feActualizacion || "-");
         printFieldRight("Cancelación", data.cancelacion || "-");
+        yRight += headingSpacing;
 
         // Pie de página
         const footerY = imagen.bitmap.height - 100;
         imagen.print(
-            font,
+            fontData,
             marginHorizontal,
             footerY,
             "Fuente: www.socialcreator.com/consultapeapk"
         );
         imagen.print(
-            font,
+            fontData,
             marginHorizontal,
             footerY + 30,
             "Esta imagen es solo informativa. No representa un documento oficial ni tiene validez legal."
