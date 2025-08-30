@@ -213,7 +213,7 @@ app.get("/generar-ficha", async (req, res) => {
             fontData,
             marginHorizontal,
             footerY,
-            "Fuente: www.socialcreator.com/consultapeapk"
+            "Encuentranos en: www.socialcreator.com/consultapeapk"
         );
         imagen.print(
             fontData,
