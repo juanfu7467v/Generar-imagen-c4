@@ -1,6 +1,7 @@
 const express = require("express");
 const axios = require("axios");
 const Jimp = require("jimp");
+const QRCode = require("qrcode"); // Importamos la librería para generar códigos QR
 const { v4: uuidv4 } = require("uuid");
 const fs = require("fs");
 const path = require("path");
@@ -12,6 +13,7 @@ if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR);
 
 // Ruta del logo de RENIEC y del icono de la app (ajusta las rutas si es necesario)
 const APP_ICON_URL = "https://www.socialcreator.com/srv/imgs/gen/79554_icohome.png";
+const APP_QR_URL = "https://www.socialcreator.com/consultapeapk#apps";
 
 // Función para generar marcas de agua
 const generarMarcaDeAgua = async (imagen) => {
@@ -61,8 +63,8 @@ app.get("/generar-ficha", async (req, res) => {
     if (!dni) return res.status(400).json({ error: "Falta el parámetro DNI" });
 
     try {
-        // Obtenemos los datos del DNI del usuario
-        const response = await axios.get(`https://poxy-production.up.railway.app/reniec?dni=${dni}`);
+        // Obtenemos los datos del DNI del usuario con la nueva API
+        const response = await axios.get(`https://banckend-poxyv1-cosultape-masitaprex.fly.dev/reniec?dni=${dni}`);
         const data = response.data?.result;
         if (!data) return res.status(404).json({ error: "No se encontró información para el DNI ingresado." });
 
@@ -123,7 +125,19 @@ app.get("/generar-ficha", async (req, res) => {
             foto.resize(fotoWidth, fotoHeight);
             const fotoX = columnRightX + (columnWidthRight - fotoWidth) / 2;
             imagen.composite(foto, fotoX, yStartContent);
-            yRight += fotoHeight + headingSpacing; // Siguiente contenido debajo de la foto
+            yRight += fotoHeight + 10; // Espacio entre foto y QR
+        }
+
+        // Generamos y colocamos el código QR para la descarga de la app
+        try {
+            const qrCodeBuffer = await QRCode.toBuffer(APP_QR_URL);
+            const qrCodeImage = await Jimp.read(qrCodeBuffer);
+            qrCodeImage.resize(200, 200);
+            const qrCodeX = columnRightX + (columnWidthRight - qrCodeImage.bitmap.width) / 2;
+            imagen.composite(qrCodeImage, qrCodeX, yRight);
+            yRight += qrCodeImage.bitmap.height + headingSpacing; // Siguiente contenido debajo del QR
+        } catch (error) {
+            console.error("Error al generar el código QR:", error);
         }
 
         // Función auxiliar para imprimir campos en la columna izquierda
@@ -213,12 +227,6 @@ app.get("/generar-ficha", async (req, res) => {
             fontData,
             marginHorizontal,
             footerY,
-            "Encuentranos en: www.socialcreator.com/consultapeapk"
-        );
-        imagen.print(
-            fontData,
-            marginHorizontal,
-            footerY + 30,
             "Esta imagen es solo informativa. No representa un documento oficial ni tiene validez legal."
         );
 
@@ -240,3 +248,4 @@ app.use("/public", express.static(PUBLIC_DIR));
 app.listen(PORT, () => {
     console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
+
