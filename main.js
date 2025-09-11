@@ -1,17 +1,17 @@
 const express = require("express");
 const axios = require("axios");
 const Jimp = require("jimp");
-const QRCode = require("qrcode"); // Importamos la librería para generar códigos QR
+const QRCode = require("qrcode");
 const { v4: uuidv4 } = require("uuid");
 const fs = require("fs");
 const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = "0.0.0.0"; // Definimos el host explícitamente
 const PUBLIC_DIR = path.join(__dirname, "public");
 if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR);
 
-// Ruta del logo de RENIEC y del icono de la app (ajusta las rutas si es necesario)
 const APP_ICON_URL = "https://www.socialcreator.com/srv/imgs/gen/79554_icohome.png";
 const APP_QR_URL = "https://www.socialcreator.com/consultapeapk#apps";
 
@@ -63,40 +63,32 @@ app.get("/generar-ficha", async (req, res) => {
     if (!dni) return res.status(400).json({ error: "Falta el parámetro DNI" });
 
     try {
-        // Obtenemos los datos del DNI del usuario con la nueva API
         const response = await axios.get(`https://banckend-poxyv1-cosultape-masitaprex.fly.dev/reniec?dni=${dni}`);
         const data = response.data?.result;
         if (!data) return res.status(404).json({ error: "No se encontró información para el DNI ingresado." });
 
-        // Creación de la imagen base
-        const imagen = new Jimp(1080, 1920, "#003366"); // Fondo azul oscuro
-
-        // Definición de márgenes y espaciados
+        const imagen = new Jimp(1080, 1920, "#003366");
         const marginHorizontal = 50;
         const columnLeftX = marginHorizontal;
         const columnRightX = imagen.bitmap.width / 2 + 50;
         const columnWidthLeft = imagen.bitmap.width / 2 - marginHorizontal - 25;
         const columnWidthRight = imagen.bitmap.width / 2 - marginHorizontal - 25;
         
-        const lineHeight = 40; // Espaciado entre líneas reducido para ahorrar espacio
-        const headingSpacing = 50; // Espaciado para las categorías
+        const lineHeight = 40;
+        const headingSpacing = 50;
 
-        // Posiciones iniciales para las columnas
         let yStartContent = 300;
         let yLeft = yStartContent;
         let yRight = yStartContent;
 
-        // Cargar fuentes en blanco (para el contraste)
         const fontTitle = await Jimp.loadFont(Jimp.FONT_SANS_64_WHITE);
         const fontHeading = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
         const fontBold = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
         const fontData = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE);
 
-        // Superponer la marca de agua de RENIEC
         const marcaAgua = await generarMarcaDeAgua(imagen);
         imagen.composite(marcaAgua, 0, 0);
 
-        // Icono principal en la parte superior
         try {
             const iconBuffer = (await axios({ url: APP_ICON_URL, responseType: 'arraybuffer' })).data;
             const mainIcon = await Jimp.read(iconBuffer);
@@ -108,7 +100,6 @@ app.get("/generar-ficha", async (req, res) => {
             imagen.print(fontTitle, marginHorizontal, 50, "Consulta Ciudadana");
         }
         
-        // Dibuja una línea separadora vertical
         const separatorX = imagen.bitmap.width / 2;
         const separatorYStart = yStartContent - 50;
         const separatorYEnd = imagen.bitmap.height - 150;
@@ -116,7 +107,6 @@ app.get("/generar-ficha", async (req, res) => {
             if (!err) imagen.composite(line, separatorX, separatorYStart);
         });
         
-        // Foto del DNI en la columna derecha
         if (data.imagenes?.foto) {
             const bufferFoto = Buffer.from(data.imagenes.foto, 'base64');
             const foto = await Jimp.read(bufferFoto);
@@ -125,22 +115,20 @@ app.get("/generar-ficha", async (req, res) => {
             foto.resize(fotoWidth, fotoHeight);
             const fotoX = columnRightX + (columnWidthRight - fotoWidth) / 2;
             imagen.composite(foto, fotoX, yStartContent);
-            yRight += fotoHeight + 10; // Espacio entre foto y QR
+            yRight += fotoHeight + 10;
         }
 
-        // Generamos y colocamos el código QR para la descarga de la app
         try {
             const qrCodeBuffer = await QRCode.toBuffer(APP_QR_URL);
             const qrCodeImage = await Jimp.read(qrCodeBuffer);
             qrCodeImage.resize(200, 200);
             const qrCodeX = columnRightX + (columnWidthRight - qrCodeImage.bitmap.width) / 2;
             imagen.composite(qrCodeImage, qrCodeX, yRight);
-            yRight += qrCodeImage.bitmap.height + headingSpacing; // Siguiente contenido debajo del QR
+            yRight += qrCodeImage.bitmap.height + headingSpacing;
         } catch (error) {
             console.error("Error al generar el código QR:", error);
         }
 
-        // Función auxiliar para imprimir campos en la columna izquierda
         const printFieldLeft = (label, value) => {
             const labelX = columnLeftX;
             const valueX = labelX + 250;
@@ -151,7 +139,6 @@ app.get("/generar-ficha", async (req, res) => {
             yLeft = newY - 10;
         };
 
-        // Función auxiliar para imprimir campos en la columna derecha
         const printFieldRight = (label, value) => {
             const labelX = columnRightX;
             const valueX = labelX + 250;
@@ -162,8 +149,6 @@ app.get("/generar-ficha", async (req, res) => {
             yRight = newY - 10;
         };
 
-        // --- COLUMNA IZQUIERDA ---
-        // Sección: Datos Personales
         imagen.print(fontHeading, columnLeftX, yLeft, "Datos Personales");
         yLeft += headingSpacing;
         printFieldLeft("DNI", data.nuDni);
@@ -178,7 +163,6 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("Donación", data.donaOrganos);
         yLeft += headingSpacing;
 
-        // Sección: Información Adicional
         imagen.print(fontHeading, columnLeftX, yLeft, "Información Adicional");
         yLeft += headingSpacing;
         printFieldLeft("Fecha Emisión", data.feEmision);
@@ -189,7 +173,6 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("Madre", data.nomMadre);
         yLeft += headingSpacing;
 
-        // Sección: Datos de Dirección
         imagen.print(fontHeading, columnLeftX, yLeft, "Datos de Dirección");
         yLeft += headingSpacing;
         printFieldLeft("Dirección", data.desDireccion);
@@ -198,7 +181,6 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("Distrito", data.distDireccion);
         yLeft += headingSpacing;
 
-        // Sección: Ubicación
         imagen.print(fontHeading, columnLeftX, yLeft, "Ubicación");
         yLeft += headingSpacing;
         printFieldLeft("Ubigeo Reniec", data.ubicacion?.ubigeo_reniec);
@@ -207,8 +189,6 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("Código Postal", data.ubicacion?.codigo_postal);
         yLeft += headingSpacing;
 
-        // --- COLUMNA DERECHA ---
-        // Sección: Otros Datos (debajo de la foto)
         imagen.print(fontHeading, columnRightX, yRight, "Otros Datos");
         yRight += headingSpacing;
         printFieldRight("País", data.pais || "-");
@@ -221,7 +201,6 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldRight("Cancelación", data.cancelacion || "-");
         yRight += headingSpacing;
 
-        // Pie de página
         const footerY = imagen.bitmap.height - 100;
         imagen.print(
             fontData,
@@ -230,7 +209,6 @@ app.get("/generar-ficha", async (req, res) => {
             "Esta imagen es solo informativa. No representa un documento oficial ni tiene validez legal."
         );
 
-        // Guardar la imagen generada
         const nombreArchivo = `${uuidv4()}.png`;
         const rutaImagen = path.join(PUBLIC_DIR, nombreArchivo);
         await imagen.writeAsync(rutaImagen);
@@ -245,7 +223,6 @@ app.get("/generar-ficha", async (req, res) => {
 
 app.use("/public", express.static(PUBLIC_DIR));
 
-app.listen(PORT, () => {
-    console.log(`Servidor corriendo en http://localhost:${PORT}`);
+app.listen(PORT, HOST, () => {
+    console.log(`Servidor corriendo en http://${HOST}:${PORT}`);
 });
-
