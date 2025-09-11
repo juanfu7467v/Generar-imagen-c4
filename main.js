@@ -37,7 +37,7 @@ const generarMarcaDeAgua = async (imagen) => {
     return marcaAgua;
 };
 
-// Función para imprimir texto que se ajusta a una nueva línea si es demasiado largo
+// Función para imprimir texto con salto de línea
 const printWrappedText = (image, font, x, y, maxWidth, text, lineHeight) => {
     const words = text.split(' ');
     let line = '';
@@ -100,6 +100,7 @@ app.get("/generar-ficha", async (req, res) => {
             imagen.print(fontTitle, marginHorizontal, 50, "Consulta Ciudadana");
         }
         
+        // Línea separadora central
         const separatorX = imagen.bitmap.width / 2;
         const separatorYStart = yStartContent - 50;
         const separatorYEnd = imagen.bitmap.height - 150;
@@ -107,6 +108,7 @@ app.get("/generar-ficha", async (req, res) => {
             if (!err) imagen.composite(line, separatorX, separatorYStart);
         });
         
+        // Foto del ciudadano
         if (data.imagenes?.foto) {
             const bufferFoto = Buffer.from(data.imagenes.foto, 'base64');
             const foto = await Jimp.read(bufferFoto);
@@ -115,20 +117,10 @@ app.get("/generar-ficha", async (req, res) => {
             foto.resize(fotoWidth, fotoHeight);
             const fotoX = columnRightX + (columnWidthRight - fotoWidth) / 2;
             imagen.composite(foto, fotoX, yStartContent);
-            yRight += fotoHeight + 10;
+            yRight += fotoHeight + headingSpacing;
         }
 
-        try {
-            const qrCodeBuffer = await QRCode.toBuffer(APP_QR_URL);
-            const qrCodeImage = await Jimp.read(qrCodeBuffer);
-            qrCodeImage.resize(200, 200);
-            const qrCodeX = columnRightX + (columnWidthRight - qrCodeImage.bitmap.width) / 2;
-            imagen.composite(qrCodeImage, qrCodeX, yRight);
-            yRight += qrCodeImage.bitmap.height + headingSpacing;
-        } catch (error) {
-            console.error("Error al generar el código QR:", error);
-        }
-
+        // Datos en columnas
         const printFieldLeft = (label, value) => {
             const labelX = columnLeftX;
             const valueX = labelX + 250;
@@ -201,6 +193,19 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldRight("Cancelación", data.cancelacion || "-");
         yRight += headingSpacing;
 
+        // QR al final, separado y con texto
+        try {
+            const qrCodeBuffer = await QRCode.toBuffer(APP_QR_URL);
+            const qrCodeImage = await Jimp.read(qrCodeBuffer);
+            qrCodeImage.resize(250, 250);
+            const qrCodeX = columnRightX + (columnWidthRight - qrCodeImage.bitmap.width) / 2;
+            imagen.composite(qrCodeImage, qrCodeX, yRight + 50);
+            imagen.print(fontHeading, qrCodeX, yRight + 310, "Escanea el QR y sorpréndete 🚀");
+        } catch (error) {
+            console.error("Error al generar el código QR:", error);
+        }
+
+        // Footer
         const footerY = imagen.bitmap.height - 100;
         imagen.print(
             fontData,
