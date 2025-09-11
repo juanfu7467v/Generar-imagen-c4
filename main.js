@@ -8,7 +8,7 @@ const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const HOST = "0.0.0.0"; // Definimos el host explícitamente
+const HOST = "0.0.0.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR);
 
