@@ -200,7 +200,7 @@ app.get("/generar-ficha", async (req, res) => {
             qrCodeImage.resize(250, 250);
             const qrCodeX = columnRightX + (columnWidthRight - qrCodeImage.bitmap.width) / 2;
             imagen.composite(qrCodeImage, qrCodeX, yRight + 50);
-            imagen.print(fontHeading, qrCodeX, yRight + 310, "Escanea el QR y sorpréndete 🚀");
+            imagen.print(fontHeading, qrCodeX, yRight + 310, "Escanea el QR");
         } catch (error) {
             console.error("Error al generar el código QR:", error);
         }
