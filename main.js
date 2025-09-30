@@ -120,7 +120,7 @@ app.get("/generar-ficha", async (req, res) => {
             yRight += fotoHeight + headingSpacing;
         }
 
-        // Datos en columnas
+        // Helpers para imprimir campos
         const printFieldLeft = (label, value) => {
             const labelX = columnLeftX;
             const valueX = labelX + 250;
@@ -146,64 +146,6 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("DNI", data.nuDni);
         printFieldLeft("Apellidos", `${data.apePaterno} ${data.apeMaterno} ${data.apCasada || ''}`.trim());
         printFieldLeft("Prenombres", data.preNombres);
-        printFieldLeft("Nacimiento", data.feNacimiento);
-        printFieldLeft("Sexo", data.sexo);
-        printFieldLeft("Estado Civil", data.estadoCivil);
-        printFieldLeft("Estatura", `${data.estatura || "-"} cm`);
-        printFieldLeft("Grado Inst.", data.gradoInstruccion);
-        printFieldLeft("Restricción", data.deRestriccion || "NINGUNA");
-        printFieldLeft("Donación", data.donaOrganos);
-        yLeft += headingSpacing;
-
-        imagen.print(fontHeading, columnLeftX, yLeft, "Información Adicional");
-        yLeft += headingSpacing;
-        printFieldLeft("Fecha Emisión", data.feEmision);
-        printFieldLeft("Fecha Inscripción", data.feInscripcion);
-        printFieldLeft("Fecha Caducidad", data.feCaducidad);
-        printFieldLeft("Fecha Fallecimiento", data.feFallecimiento || "-");
-        printFieldLeft("Padre", data.nomPadre);
-        printFieldLeft("Madre", data.nomMadre);
-        yLeft += headingSpacing;
-
-        imagen.print(fontHeading, columnLeftX, yLeft, "Datos de Dirección");
-        yLeft += headingSpacing;
-        printFieldLeft("Dirección", data.desDireccion);
-        printFieldLeft("Departamento", data.depaDireccion);
-        printFieldLeft("Provincia", data.provDireccion);
-        printFieldLeft("Distrito", data.distDireccion);
-        yLeft += headingSpacing;
-
-        imagen.print(fontHeading, columnLeftX, yLeft, "Ubicación");
-        yLeft += headingSpacing;
-        printFieldLeft("Ubigeo Reniec", data.ubicacion?.ubigeo_reniec);
-        printFieldLeft("Ubigeo INEI", data.ubicacion?.ubigeo_inei);
-        printFieldLeft("Ubigeo Sunat", data.ubicacion?.ubigeo_sunat);
-        printFieldLeft("Código Postal", data.ubicacion?.codigo_postal);
-        yLeft += headingSpacing;
-
-        imagen.print(fontHeading, columnRightX, yRight, "Otros Datos");
-        yRight += headingSpacing;
-        printFieldRight("País", data.pais || "-");
-        printFieldRight("Grupo Votación", data.gpVotacion || "-");
-        printFieldRight("Teléfono", data.telefono || "-");
-        printFieldRight("Email", data.email || "-");
-        printFieldRight("Multas Electorales", data.multasElectorales || "-");
-        printFieldRight("Multa Admin", data.multaAdmin || "-");
-        printFieldRight("Fecha Actualización", data.feActualizacion || "-");
-        printFieldRight("Cancelación", data.cancelacion || "-");
-        yRight += headingSpacing;
-
-        // QR al final, separado y con texto
-        try {
-            const qrCodeBuffer = await QRCode.toBuffer(APP_QR_URL);
-            const qrCodeImage = await Jimp.read(qrCodeBuffer);
-            qrCodeImage.resize(250, 250);
-            const qrCodeX = columnRightX + (columnWidthRight - qrCodeImage.bitmap.width) / 2;
-            imagen.composite(qrCodeImage, qrCodeX, yRight + 50);
-            imagen.print(fontHeading, qrCodeX, yRight + 310, "Escanea el QR");
-        } catch (error) {
-            console.error("Error al generar el código QR:", error);
-        }
 
         // Footer
         const footerY = imagen.bitmap.height - 100;
@@ -214,12 +156,27 @@ app.get("/generar-ficha", async (req, res) => {
             "Esta imagen es solo informativa. No representa un documento oficial ni tiene validez legal."
         );
 
+        // Guardar archivo generado
         const nombreArchivo = `${uuidv4()}.png`;
         const rutaImagen = path.join(PUBLIC_DIR, nombreArchivo);
         await imagen.writeAsync(rutaImagen);
 
         const url = `${req.protocol}://${req.get("host")}/public/${nombreArchivo}`;
-        res.json({ message: "Ficha generada", url });
+
+        // 📌 Respuesta en el formato solicitado
+        res.json({
+            bot: "Consulta pe",
+            chat_id: Date.now(), // simulado, puedes usar el real
+            date: new Date().toISOString(),
+            fields: { dni: data.nuDni },
+            from_id: Date.now(),
+            message: `DNI : ${data.nuDni}\nAPELLIDO PATERNO : ${data.apePaterno}\nAPELLIDO MATERNO : ${data.apeMaterno}\nNOMBRES : ${data.preNombres}\nESTADO : DOCUMENTO GENERADO EXITOSAMENTE.`,
+            parts_received: 1,
+            urls: {
+                FILE: url
+            }
+        });
+
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Error al generar la ficha", detalle: error.message });
