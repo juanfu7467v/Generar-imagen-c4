@@ -3,13 +3,14 @@ const axios = require("axios");
 const Jimp = require("jimp");
 const QRCode = require("qrcode");
 const { v4: uuidv4 } = require("uuid");
-// 'fs' y 'path' ya no son necesarios para guardar archivos localmente.
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = "0.0.0.0";
+// URL base de tu API, asumiendo que el servicio se aloja aquí
+const API_BASE_URL = process.env.API_BASE_URL || `http://${HOST}:${PORT}`; 
 
-// --- Configuración de GitHub ---
+// --- Configuración de GitHub (Se mantiene igual) ---
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const GITHUB_REPO = process.env.GITHUB_REPO; // Formato: "usuario/repositorio"
 const GITHUB_BRANCH = "main"; // Puedes cambiar esto si tu rama principal es 'master'
@@ -67,7 +68,7 @@ const uploadToGitHub = async (fileName, imageBuffer) => {
 };
 
 
-// Función para generar marcas de agua
+// Función para generar marcas de agua (sin cambios)
 const generarMarcaDeAgua = async (imagen) => {
     const marcaAgua = await Jimp.read(imagen.bitmap.width, imagen.bitmap.height, 0x00000000);
     const fontWatermark = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
@@ -85,7 +86,7 @@ const generarMarcaDeAgua = async (imagen) => {
     return marcaAgua; 
 };
 
-// Función para imprimir texto con salto de línea
+// Función para imprimir texto con salto de línea (sin cambios)
 const printWrappedText = (image, font, x, y, maxWidth, text, lineHeight) => {
     const words = text.split(' ');
     let line = '';
@@ -106,6 +107,7 @@ const printWrappedText = (image, font, x, y, maxWidth, text, lineHeight) => {
     return currentY + lineHeight; 
 };
 
+// --- RUTA MODIFICADA: Genera la ficha y devuelve la URL del PROXY de descarga ---
 app.get("/generar-ficha", async (req, res) => {
     const { dni } = req.query;
     if (!dni) return res.status(400).json({ error: "Falta el parámetro DNI" });
@@ -171,7 +173,7 @@ app.get("/generar-ficha", async (req, res) => {
             yRight += fotoHeight + headingSpacing; 
         } 
         
-        // Datos en columnas 
+        // Datos en columnas (Mismo código)
         const printFieldLeft = (label, value) => { 
             const labelX = columnLeftX; 
             const valueX = labelX + 250; 
@@ -273,15 +275,20 @@ app.get("/generar-ficha", async (req, res) => {
             "Esta imagen es solo informativa. No representa un documento oficial ni tiene validez legal." 
         ); 
         
-        // 3. Obtener el buffer de la imagen en lugar de guardarla localmente
+        // 3. Obtener el buffer de la imagen
         const imagenBuffer = await imagen.getBufferAsync(Jimp.MIME_PNG);
         
-        const nombreArchivo = `${data.nuDni}_${uuidv4()}.png`; // Uso del DNI para un nombre más útil
+        const nombreArchivo = `${data.nuDni}_${uuidv4()}.png`;
 
         // 4. Subir la imagen a GitHub y obtener la URL pública
-        const urlArchivo = await uploadToGitHub(nombreArchivo, imagenBuffer);
+        const urlArchivoGitHub = await uploadToGitHub(nombreArchivo, imagenBuffer);
+        
+        // 5. Crear la URL de descarga (¡EL CAMBIO CLAVE!)
+        // El cliente llamará a esta URL para forzar la descarga, y no a la de GitHub directamente.
+        // Se codifica la URL de GitHub para que sea un parámetro válido.
+        const urlDescargaProxy = `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(urlArchivoGitHub)}`;
 
-        // 5. Preparar la respuesta JSON
+        // 6. Preparar la respuesta JSON
         const dateNow = new Date().toISOString();
         const messageText = `DNI : ${data.nuDni}\nAPELLIDO PATERNO : ${data.apePaterno}\nAPELLIDO MATERNO : ${data.apeMaterno}\nNOMBRES : ${data.preNombres}\nESTADO : FICHA GENERADA Y GUARDADA EN GITHUB.`;
 
@@ -296,7 +303,8 @@ app.get("/generar-ficha", async (req, res) => {
             "message": messageText,
             "parts_received": 1, 
             "urls": {
-                "FILE": urlArchivo // URL pública de GitHub
+                // Ahora devolvemos la URL de nuestro propio servidor (el proxy de descarga)
+                "FILE": urlDescargaProxy 
             }
         });
 
@@ -310,10 +318,45 @@ app.get("/generar-ficha", async (req, res) => {
 
 });
 
-// Eliminamos app.use("/public", express.static(PUBLIC_DIR)) ya que no hay archivos locales.
+// --- NUEVA RUTA: Proxy de descarga que fuerza al navegador a guardar el archivo ---
+app.get("/descargar-ficha", async (req, res) => {
+    const { url } = req.query; // URL del archivo en GitHub
+    
+    if (!url) {
+        return res.status(400).send("Falta el parámetro 'url' de la imagen.");
+    }
+
+    try {
+        // 1. Descargar el archivo de la URL proporcionada (ej. GitHub Raw)
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
+        const imageBuffer = Buffer.from(response.data);
+
+        // 2. Extraer el nombre del archivo de la URL para usarlo en la descarga
+        // Esto asume que la URL de GitHub termina en '.../public/nombre_archivo.png'
+        const urlParts = url.split('/');
+        const fileName = urlParts[urlParts.length - 1]; 
+
+        // 3. Establecer las cabeceras clave para forzar la descarga
+        res.set({
+            'Content-Disposition': `attachment; filename="${fileName}"`, // CLAVE: 'attachment' fuerza la descarga
+            'Content-Type': 'image/png', // Opcional, pero recomendado
+            'Content-Length': imageBuffer.length // Recomendado para el progreso de descarga
+        });
+
+        // 4. Enviar el buffer de la imagen
+        res.send(imageBuffer);
+
+    } catch (error) {
+        console.error("Error al descargar o servir la imagen:", error);
+        res.status(500).send("Error al procesar la descarga del archivo.");
+    }
+});
+// --------------------------------------------------------------------------------
 
 app.listen(PORT, HOST, () => {
-    console.log(`Servidor corriendo en http://${HOST}:${PORT}`);
+    console.log(`Servidor corriendo en ${API_BASE_URL}`);
     if (!GITHUB_TOKEN) console.warn("ADVERTENCIA: GITHUB_TOKEN no está configurado.");
     if (!GITHUB_REPO) console.warn("ADVERTENCIA: GITHUB_REPO no está configurado.");
+    if (!process.env.API_BASE_URL) console.warn("ADVERTENCIA: API_BASE_URL no está configurado y se usa una URL local. Por favor, configúrala para el entorno de producción (ej: https://imagen-v2.fly.dev).");
 });
+
