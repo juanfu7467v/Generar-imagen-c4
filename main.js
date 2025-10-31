@@ -6,14 +6,17 @@ const { v4: uuidv4 } = require("uuid");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const HOST = "0.0.0.0";
-// URL base de tu API, asumiendo que el servicio se aloja aquí
-const API_BASE_URL = process.env.API_BASE_URL || `http://${HOST}:${PORT}`; 
+// Se puede dejar el HOST como '0.0.0.0' si es requerido por el entorno (ej: Fly.io)
+const HOST = "0.0.0.0"; 
+
+// 🎯 CAMBIO CLAVE: Definir la URL base pública si no se proporciona como variable de entorno
+// Esto soluciona el problema de los links http://0.0.0.0:3000/...
+const API_BASE_URL = process.env.API_BASE_URL || "https://imagen-v2.fly.dev";
 
 // --- Configuración de GitHub (Se mantiene igual) ---
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const GITHUB_REPO = process.env.GITHUB_REPO; // Formato: "usuario/repositorio"
-const GITHUB_BRANCH = "main"; // Puedes cambiar esto si tu rama principal es 'master'
+const GITHUB_BRANCH = "main"; 
 
 const APP_ICON_URL = "https://www.socialcreator.com/srv/imgs/gen/79554_icohome.png";
 const APP_QR_URL = "https://www.socialcreator.com/consultapeapk#apps";
@@ -284,8 +287,7 @@ app.get("/generar-ficha", async (req, res) => {
         const urlArchivoGitHub = await uploadToGitHub(nombreArchivo, imagenBuffer);
         
         // 5. Crear la URL de descarga (¡EL CAMBIO CLAVE!)
-        // El cliente llamará a esta URL para forzar la descarga, y no a la de GitHub directamente.
-        // Se codifica la URL de GitHub para que sea un parámetro válido.
+        // Ahora usa el API_BASE_URL correcto (ej: https://imagen-v2.fly.dev)
         const urlDescargaProxy = `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(urlArchivoGitHub)}`;
 
         // 6. Preparar la respuesta JSON
@@ -303,7 +305,7 @@ app.get("/generar-ficha", async (req, res) => {
             "message": messageText,
             "parts_received": 1, 
             "urls": {
-                // Ahora devolvemos la URL de nuestro propio servidor (el proxy de descarga)
+                // Esta URL será https://imagen-v2.fly.dev/descargar-ficha?...
                 "FILE": urlDescargaProxy 
             }
         });
@@ -318,7 +320,7 @@ app.get("/generar-ficha", async (req, res) => {
 
 });
 
-// --- NUEVA RUTA: Proxy de descarga que fuerza al navegador a guardar el archivo ---
+// --- NUEVA RUTA: Proxy de descarga que fuerza al navegador a guardar el archivo (Sin cambios) ---
 app.get("/descargar-ficha", async (req, res) => {
     const { url } = req.query; // URL del archivo en GitHub
     
@@ -332,7 +334,6 @@ app.get("/descargar-ficha", async (req, res) => {
         const imageBuffer = Buffer.from(response.data);
 
         // 2. Extraer el nombre del archivo de la URL para usarlo en la descarga
-        // Esto asume que la URL de GitHub termina en '.../public/nombre_archivo.png'
         const urlParts = url.split('/');
         const fileName = urlParts[urlParts.length - 1]; 
 
@@ -357,6 +358,6 @@ app.listen(PORT, HOST, () => {
     console.log(`Servidor corriendo en ${API_BASE_URL}`);
     if (!GITHUB_TOKEN) console.warn("ADVERTENCIA: GITHUB_TOKEN no está configurado.");
     if (!GITHUB_REPO) console.warn("ADVERTENCIA: GITHUB_REPO no está configurado.");
-    if (!process.env.API_BASE_URL) console.warn("ADVERTENCIA: API_BASE_URL no está configurado y se usa una URL local. Por favor, configúrala para el entorno de producción (ej: https://imagen-v2.fly.dev).");
+    // ADVERTENCIA MODIFICADA
+    if (!process.env.API_BASE_URL) console.warn("ADVERTENCIA: La variable de entorno API_BASE_URL no está configurada y se usa la URL de fallback: https://imagen-v2.fly.dev.");
 });
-
