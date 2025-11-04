@@ -9,8 +9,7 @@ const PORT = process.env.PORT || 3000;
 // Se puede dejar el HOST como '0.0.0.0' si es requerido por el entorno (ej: Fly.io)
 const HOST = "0.0.0.0"; 
 
-// 🎯 CAMBIO CLAVE: Definir la URL base pública si no se proporciona como variable de entorno
-// Esto soluciona el problema de los links http://0.0.0.0:3000/...
+// 🎯 CLAVE: Definir la URL base pública si no se proporciona como variable de entorno
 const API_BASE_URL = process.env.API_BASE_URL || "https://imagen-v2.fly.dev";
 
 // --- Configuración de GitHub (Se mantiene igual) ---
@@ -22,7 +21,7 @@ const APP_ICON_URL = "https://www.socialcreator.com/srv/imgs/gen/79554_icohome.p
 const APP_QR_URL = "https://www.socialcreator.com/consultapeapk#apps";
 
 /**
- * Sube un buffer de imagen a un repositorio de GitHub usando la API de Contents.
+ * Sube un buffer de imagen PNG a un repositorio de GitHub usando la API de Contents.
  * @param {string} fileName - Nombre del archivo a crear (incluyendo extensión).
  * @param {Buffer} imageBuffer - Buffer de la imagen PNG.
  * @returns {Promise<string>} La URL pública (Raw) del archivo subido.
@@ -37,7 +36,7 @@ const uploadToGitHub = async (fileName, imageBuffer) => {
         throw new Error("El formato de GITHUB_REPO debe ser 'owner/repository-name'.");
     }
 
-    const filePath = `public/${fileName}`; // Ruta dentro del repositorio
+    const filePath = `public/${fileName}`; // Ruta dentro del repositorio (para imágenes)
     const contentBase64 = imageBuffer.toString('base64');
 
     const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
@@ -60,16 +59,63 @@ const uploadToGitHub = async (fileName, imageBuffer) => {
         }
     };
 
-    console.log(`Intentando subir archivo a GitHub: ${filePath} en ${GITHUB_REPO}`);
+    console.log(`Intentando subir archivo de imagen a GitHub: ${filePath} en ${GITHUB_REPO}`);
     
     // Realiza la solicitud PUT para crear o actualizar el archivo
     await axios.put(apiUrl, data, config);
 
-    console.log(`Archivo subido exitosamente a GitHub. URL: ${publicUrl}`);
+    console.log(`Archivo de imagen subido exitosamente a GitHub. URL: ${publicUrl}`);
 
     return publicUrl;
 };
 
+/**
+ * Sube un buffer de datos de texto/JSON a un repositorio de GitHub usando la API de Contents.
+ * ESTA ES LA FUNCIÓN NUEVA PARA GUARDAR EL JSON.
+ * @param {string} fileName - Nombre del archivo a crear (incluyendo extensión, ej: .json).
+ * @param {object} jsonData - Objeto JSON con los datos del DNI.
+ * @returns {Promise<string>} La URL pública (Raw) del archivo subido.
+ */
+const uploadDataToGitHub = async (fileName, jsonData) => {
+    if (!GITHUB_TOKEN || !GITHUB_REPO) {
+        // En un entorno de producción, esto debería ser manejado antes de llegar aquí.
+        throw new Error("Error de configuración: GITHUB_TOKEN o GITHUB_REPO no están definidos.");
+    }
+
+    const [owner, repo] = GITHUB_REPO.split('/');
+    if (!owner || !repo) {
+        throw new Error("El formato de GITHUB_REPO debe ser 'owner/repository-name'.");
+    }
+
+    const filePath = `data/${fileName}`; // Ruta dentro del repositorio (para datos JSON)
+    const content = JSON.stringify(jsonData, null, 2); // Formatea el JSON para legibilidad
+    const contentBase64 = Buffer.from(content, 'utf8').toString('base64');
+
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
+    const publicUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${GITHUB_BRANCH}/${filePath}`;
+
+    const data = {
+        message: `feat: Datos JSON generados para DNI ${jsonData.nuDni}`,
+        content: contentBase64,
+        branch: GITHUB_BRANCH
+    };
+
+    const config = {
+        headers: {
+            Authorization: `token ${GITHUB_TOKEN}`,
+            'Content-Type': 'application/json',
+            'User-Agent': 'FlyIoImageGeneratorApp'
+        }
+    };
+
+    console.log(`Intentando subir datos JSON a GitHub: ${filePath} en ${GITHUB_REPO}`);
+
+    await axios.put(apiUrl, data, config);
+
+    console.log(`Archivo JSON subido exitosamente a GitHub. URL: ${publicUrl}`);
+
+    return publicUrl;
+};
 
 // Función para generar marcas de agua (sin cambios)
 const generarMarcaDeAgua = async (imagen) => {
@@ -110,7 +156,7 @@ const printWrappedText = (image, font, x, y, maxWidth, text, lineHeight) => {
     return currentY + lineHeight; 
 };
 
-// --- RUTA MODIFICADA: Genera la ficha y devuelve la URL del PROXY de descarga ---
+// --- RUTA MODIFICADA: Genera la ficha, guarda imagen y JSON, y devuelve las URLs ---
 app.get("/generar-ficha", async (req, res) => {
     const { dni } = req.query;
     if (!dni) return res.status(400).json({ error: "Falta el parámetro DNI" });
@@ -125,7 +171,7 @@ app.get("/generar-ficha", async (req, res) => {
         }); 
         
         // 2. Generación de la imagen (Jimp) - Mismo código
-        const imagen = new Jimp(1080, 1920, "#003366"); 
+        const imagen = await new Jimp(1080, 1920, "#003366"); 
         const marginHorizontal = 50; 
         const columnLeftX = marginHorizontal; 
         const columnRightX = imagen.bitmap.width / 2 + 50; 
@@ -281,18 +327,20 @@ app.get("/generar-ficha", async (req, res) => {
         // 3. Obtener el buffer de la imagen
         const imagenBuffer = await imagen.getBufferAsync(Jimp.MIME_PNG);
         
-        const nombreArchivo = `${data.nuDni}_${uuidv4()}.png`;
+        const nombreBase = `${data.nuDni}_${uuidv4()}`;
 
-        // 4. Subir la imagen a GitHub y obtener la URL pública
-        const urlArchivoGitHub = await uploadToGitHub(nombreArchivo, imagenBuffer);
+        // 4. Subir la imagen PNG a GitHub y obtener la URL pública
+        const urlArchivoGitHub = await uploadToGitHub(`${nombreBase}.png`, imagenBuffer);
+
+        // 5. NUEVO: Subir los datos JSON a GitHub y obtener la URL pública
+        const urlArchivoDataGitHub = await uploadDataToGitHub(`${nombreBase}.json`, data);
         
-        // 5. Crear la URL de descarga (¡EL CAMBIO CLAVE!)
-        // Ahora usa el API_BASE_URL correcto (ej: https://imagen-v2.fly.dev)
+        // 6. Crear la URL de descarga (PROXY)
         const urlDescargaProxy = `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(urlArchivoGitHub)}`;
 
-        // 6. Preparar la respuesta JSON
+        // 7. Preparar la respuesta JSON
         const dateNow = new Date().toISOString();
-        const messageText = `DNI : ${data.nuDni}\nAPELLIDO PATERNO : ${data.apePaterno}\nAPELLIDO MATERNO : ${data.apeMaterno}\nNOMBRES : ${data.preNombres}\nESTADO : FICHA GENERADA Y GUARDADA EN GITHUB.`;
+        const messageText = `DNI : ${data.nuDni}\nAPELLIDO PATERNO : ${data.apePaterno}\nAPELLIDO MATERNO : ${data.apeMaterno}\nNOMBRES : ${data.preNombres}\nESTADO : FICHA Y DATOS GENERADOS Y GUARDADOS EN GITHUB.`;
 
         res.json({
             "bot": "Consulta pe",
@@ -305,8 +353,10 @@ app.get("/generar-ficha", async (req, res) => {
             "message": messageText,
             "parts_received": 1, 
             "urls": {
-                // Esta URL será https://imagen-v2.fly.dev/descargar-ficha?...
-                "FILE": urlDescargaProxy 
+                // URL de descarga del proxy (para la imagen)
+                "FILE": urlDescargaProxy, 
+                // URL directa al archivo JSON en GitHub
+                "DATA_FILE": urlArchivoDataGitHub 
             }
         });
 
@@ -320,7 +370,66 @@ app.get("/generar-ficha", async (req, res) => {
 
 });
 
-// --- NUEVA RUTA: Proxy de descarga que fuerza al navegador a guardar el archivo (Sin cambios) ---
+// --- NUEVOS ENDPOINTS SOLICITADOS (CON RESTRICCIONES) ---
+// NOTA: Estos endpoints devuelven un error 501 porque la API externa (banckend-poxyv1-cosultape-masitaprex.fly.dev/reniec) 
+// solo soporta la búsqueda por DNI y no ofrece filtros inversos (por nombre, padres, o edad). 
+// Deberás cambiar la lógica interna de estos endpoints para llamar a una API que sí soporte estas funcionalidades.
+// --------------------------------------------------------
+
+// Endpoint 1: Consultar DNI por nombres y apellidos
+app.get("/buscar-por-nombre", (req, res) => {
+    const { nombres, apellidos } = req.query;
+
+    if (!nombres || !apellidos) {
+        return res.status(400).json({ 
+            error: "Faltan parámetros: 'nombres' y 'apellidos' son requeridos para esta consulta." 
+        });
+    }
+
+    res.status(501).json({ 
+        error: "Búsqueda Avanzada No Implementada",
+        message: `La API externa que utiliza esta aplicación solo soporta la consulta por número de DNI. No es posible realizar búsquedas inversas por nombres y apellidos.`,
+        solicitado: { nombres, apellidos }
+    });
+});
+
+// Endpoint 2: Consultar DNI por nombres de padres
+app.get("/buscar-por-padres", (req, res) => {
+    const { nomPadre, nomMadre } = req.query;
+
+    if (!nomPadre && !nomMadre) {
+        return res.status(400).json({ 
+            error: "Faltan parámetros: Se requiere al menos 'nomPadre' o 'nomMadre' para esta consulta." 
+        });
+    }
+    
+    res.status(501).json({ 
+        error: "Búsqueda Avanzada No Implementada",
+        message: `La API externa que utiliza esta aplicación solo soporta la consulta por número de DNI. No es posible realizar búsquedas por nombres de padres.`,
+        solicitado: { nomPadre, nomMadre }
+    });
+});
+
+// Endpoint 3: Consultar DNI por edad
+app.get("/buscar-por-edad", (req, res) => {
+    const { edad } = req.query;
+
+    if (!edad) {
+        return res.status(400).json({ 
+            error: "Falta el parámetro 'edad' para esta consulta." 
+        });
+    }
+    
+    res.status(501).json({ 
+        error: "Búsqueda Avanzada No Implementada",
+        message: `La API externa que utiliza esta aplicación solo soporta la consulta por número de DNI. No es posible realizar búsquedas por edad.`,
+        solicitado: { edad }
+    });
+});
+// -------------------------------------------------------------
+
+
+// --- RUTA: Proxy de descarga que fuerza al navegador a guardar el archivo (Sin cambios) ---
 app.get("/descargar-ficha", async (req, res) => {
     const { url } = req.query; // URL del archivo en GitHub
     
