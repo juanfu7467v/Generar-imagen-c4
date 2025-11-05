@@ -21,15 +21,12 @@ const APP_ICON_URL = "https://www.socialcreator.com/srv/imgs/gen/79554_icohome.p
 const APP_QR_URL = "https://www.socialcreator.com/consultapeapk#apps";
 
 /**
- * Función genérica para subir un buffer de imagen a GitHub.
- * Se usa para la imagen completa.
+ * Sube un buffer de imagen PNG a un repositorio de GitHub usando la API de Contents.
  * @param {string} fileName - Nombre del archivo a crear (incluyendo extensión).
- * @param {Buffer} imageBuffer - Buffer de la imagen.
- * @param {string} dni - DNI para el mensaje de commit.
- * @param {string} folder - Carpeta dentro del repositorio (ej: 'public').
+ * @param {Buffer} imageBuffer - Buffer de la imagen PNG.
  * @returns {Promise<string>} La URL pública (Raw) del archivo subido.
  */
-const uploadImageBufferToGitHub = async (fileName, imageBuffer, dni, folder = 'public') => {
+const uploadToGitHub = async (fileName, imageBuffer) => {
     if (!GITHUB_TOKEN || !GITHUB_REPO) {
         throw new Error("Error de configuración: GITHUB_TOKEN o GITHUB_REPO no están definidos.");
     }
@@ -39,48 +36,49 @@ const uploadImageBufferToGitHub = async (fileName, imageBuffer, dni, folder = 'p
         throw new Error("El formato de GITHUB_REPO debe ser 'owner/repository-name'.");
     }
 
-    const filePath = `${folder}/${fileName}`; // Ruta dentro del repositorio
+    const filePath = `public/${fileName}`; // Ruta dentro del repositorio (para imágenes)
     const contentBase64 = imageBuffer.toString('base64');
 
     const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
+    // Usamos la URL de contenido RAW para un acceso directo a la imagen.
     const publicUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${GITHUB_BRANCH}/${filePath}`;
 
     const data = {
-        message: `feat: Subida de ${fileName.split('.')[0]} para DNI ${dni}`,
+        message: `feat: Ficha generada para DNI ${fileName.split('_')[0]}`,
         content: contentBase64,
         branch: GITHUB_BRANCH
     };
 
     const config = {
         headers: {
+            // Se utiliza el token para la autenticación
             Authorization: `token ${GITHUB_TOKEN}`,
             'Content-Type': 'application/json',
+            // El User-Agent es requerido por la API de GitHub
             'User-Agent': 'FlyIoImageGeneratorApp'
         }
     };
 
-    console.log(`Intentando subir archivo de imagen a GitHub: ${filePath}`);
+    console.log(`Intentando subir archivo de imagen a GitHub: ${filePath} en ${GITHUB_REPO}`);
+    
+    // Realiza la solicitud PUT para crear o actualizar el archivo
     await axios.put(apiUrl, data, config);
-    console.log(`Archivo de imagen subido exitosamente. URL: ${publicUrl}`);
+
+    console.log(`Archivo de imagen subido exitosamente a GitHub. URL: ${publicUrl}`);
 
     return publicUrl;
 };
 
-// Función específica para la ficha completa
-const uploadToGitHub = (fileName, imageBuffer, dni) => {
-    // Usa la función genérica con la carpeta 'public'
-    return uploadImageBufferToGitHub(fileName, imageBuffer, dni, 'public');
-};
-
-
 /**
  * Sube un buffer de datos de texto/JSON a un repositorio de GitHub usando la API de Contents.
+ * ESTA ES LA FUNCIÓN NUEVA PARA GUARDAR EL JSON.
  * @param {string} fileName - Nombre del archivo a crear (incluyendo extensión, ej: .json).
- * @param {object} dniData - Objeto JSON con los datos del DNI (incluyendo nomPadre y nomMadre).
+ * @param {object} jsonData - Objeto JSON con los datos del DNI.
  * @returns {Promise<string>} La URL pública (Raw) del archivo subido.
  */
-const uploadDataToGitHub = async (fileName, dniData) => {
+const uploadDataToGitHub = async (fileName, jsonData) => {
     if (!GITHUB_TOKEN || !GITHUB_REPO) {
+        // En un entorno de producción, esto debería ser manejado antes de llegar aquí.
         throw new Error("Error de configuración: GITHUB_TOKEN o GITHUB_REPO no están definidos.");
     }
 
@@ -89,22 +87,15 @@ const uploadDataToGitHub = async (fileName, dniData) => {
         throw new Error("El formato de GITHUB_REPO debe ser 'owner/repository-name'.");
     }
 
-    const jsonDataToSave = {
-        ...dniData,
-        // Aseguramos que los campos existan antes de guardar
-        nomPadre: dniData.nomPadre || "NO DISPONIBLE EN FUENTE",
-        nomMadre: dniData.nomMadre || "NO DISPONIBLE EN FUENTE",
-    };
-
     const filePath = `data/${fileName}`; // Ruta dentro del repositorio (para datos JSON)
-    const content = JSON.stringify(jsonDataToSave, null, 2); // Formatea el JSON para legibilidad
+    const content = JSON.stringify(jsonData, null, 2); // Formatea el JSON para legibilidad
     const contentBase64 = Buffer.from(content, 'utf8').toString('base64');
 
     const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
     const publicUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${GITHUB_BRANCH}/${filePath}`;
 
     const data = {
-        message: `feat: Datos JSON generados para DNI ${dniData.nuDni}`,
+        message: `feat: Datos JSON generados para DNI ${jsonData.nuDni}`,
         content: contentBase64,
         branch: GITHUB_BRANCH
     };
@@ -171,26 +162,14 @@ app.get("/generar-ficha", async (req, res) => {
     if (!dni) return res.status(400).json({ error: "Falta el parámetro DNI" });
 
     try { 
-        // 1. Obtener datos del DNI (Tu API de consulta que NO requiere Token)
+        // 1. Obtener datos del DNI
         const response = await axios.get(`https://banckend-poxyv1-cosultape-masitaprex.fly.dev/reniec?dni=${dni}`); 
-        let data = response.data?.result; // Se usa 'let' para modificar 'data'
+        const data = response.data?.result; 
         
         if (!data) return res.status(404).json({ 
             error: "No se encontró información para el DNI ingresado." 
         }); 
         
-        // 🚩 CLAVE DE EXTRACCIÓN: Aseguramos que nomPadre y nomMadre estén en 'data' para el JSON de GitHub
-        data.nomPadre = data.nomPadre || "NO DISPONIBLE EN FUENTE";
-        data.nomMadre = data.nomMadre || "NO DISPONIBLE EN FUENTE";
-
-        const nombreBase = `${data.nuDni}_${uuidv4()}`;
-        const imagenesUrls = {}; // Se mantiene para compatibilidad con la estructura de respuesta final
-
-        // -------------------------------------------------------------------------
-        // ❌ ELIMINADO: La sección 'uploadIndividualImage' y el 'Promise.all'
-        // para subir imágenes individuales.
-        // -------------------------------------------------------------------------
-
         // 2. Generación de la imagen (Jimp) - Mismo código
         const imagen = await new Jimp(1080, 1920, "#003366"); 
         const marginHorizontal = 50; 
@@ -398,15 +377,13 @@ app.get("/generar-ficha", async (req, res) => {
             qrCodeImage.resize(250, 250); 
             const qrCodeX = columnRightX + (columnWidthRight - qrCodeImage.bitmap.width) / 2; 
             
-            // Ajuste: Aumentamos el espacio con las huellas, subiendo el QR 
-            // Usamos un valor fijo para el QR que asegure espacio
-            const qrY = Math.max(yRight + 50, separatorYEnd - 300); 
-            
-            // Reajustamos la posición para dejar más espacio abajo si es posible
-            const finalQrY = Math.min(qrY, separatorYEnd - 320); // Movemos un poco más arriba
+            // 💡 MODIFICACIÓN: Subir el QR 100 píxeles más arriba para asegurar espacio
+            // Se usa yRight - 100 para subirlo 100px desde donde terminó la última huella.
+            // Se mantiene el Math.max para asegurar que no se superponga con la línea divisoria.
+            const qrY = Math.max(yRight - 100, separatorYEnd - 300); 
 
-            imagen.composite(qrCodeImage, qrCodeX, finalQrY); 
-            imagen.print(fontHeading, qrCodeX, finalQrY + 260, "Escanea el QR");
+            imagen.composite(qrCodeImage, qrCodeX, qrY); 
+            imagen.print(fontHeading, qrCodeX, qrY + 260, "Escanea el QR");
         } catch (error) { 
             console.error("Error al generar el código QR:", error); 
         } 
@@ -423,13 +400,15 @@ app.get("/generar-ficha", async (req, res) => {
         // 3. Obtener el buffer de la imagen
         const imagenBuffer = await imagen.getBufferAsync(Jimp.MIME_PNG);
         
-        // 4. Subir la imagen PNG completa a GitHub y obtener la URL pública
-        const urlArchivoGitHub = await uploadToGitHub(`${nombreBase}.png`, imagenBuffer, data.nuDni);
+        const nombreBase = `${data.nuDni}_${uuidv4()}`;
 
-        // 5. Subir los datos JSON a GitHub y obtener la URL pública
+        // 4. Subir la imagen PNG a GitHub y obtener la URL pública
+        const urlArchivoGitHub = await uploadToGitHub(`${nombreBase}.png`, imagenBuffer);
+
+        // 5. NUEVO: Subir los datos JSON a GitHub y obtener la URL pública
         const urlArchivoDataGitHub = await uploadDataToGitHub(`${nombreBase}.json`, data);
         
-        // 6. Crear la URL de descarga (PROXY) para la imagen completa
+        // 6. Crear la URL de descarga (PROXY)
         const urlDescargaProxy = `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(urlArchivoGitHub)}`;
 
         // 7. Preparar la respuesta JSON
@@ -447,12 +426,10 @@ app.get("/generar-ficha", async (req, res) => {
             "message": messageText,
             "parts_received": 1, 
             "urls": {
-                // Imagen completa
+                // URL de descarga del proxy (para la imagen)
                 "FILE": urlDescargaProxy, 
-                // Datos JSON
-                "DATA_FILE": urlArchivoDataGitHub,
-                // Imágenes individuales (Ahora estará vacío, se deja por si el cliente las espera)
-                ...imagenesUrls 
+                // URL directa al archivo JSON en GitHub
+                "DATA_FILE": urlArchivoDataGitHub 
             }
         });
 
@@ -465,6 +442,65 @@ app.get("/generar-ficha", async (req, res) => {
     } 
 
 });
+
+// --- NUEVOS ENDPOINTS SOLICITADOS (CON RESTRICCIONES) ---
+// NOTA: Estos endpoints devuelven un error 501 porque la API externa (banckend-poxyv1-cosultape-masitaprex.fly.dev/reniec) 
+// solo soporta la búsqueda por DNI y no ofrece filtros inversos (por nombre, padres, o edad). 
+// Deberás cambiar la lógica interna de estos endpoints para llamar a una API que sí soporte estas funcionalidades.
+// --------------------------------------------------------
+
+// Endpoint 1: Consultar DNI por nombres y apellidos
+app.get("/buscar-por-nombre", (req, res) => {
+    const { nombres, apellidos } = req.query;
+
+    if (!nombres || !apellidos) {
+        return res.status(400).json({ 
+            error: "Faltan parámetros: 'nombres' y 'apellidos' son requeridos para esta consulta." 
+        });
+    }
+
+    res.status(501).json({ 
+        error: "Búsqueda Avanzada No Implementada",
+        message: `La API externa que utiliza esta aplicación solo soporta la consulta por número de DNI. No es posible realizar búsquedas inversas por nombres y apellidos.`,
+        solicitado: { nombres, apellidos }
+    });
+});
+
+// Endpoint 2: Consultar DNI por nombres de padres
+app.get("/buscar-por-padres", (req, res) => {
+    const { nomPadre, nomMadre } = req.query;
+
+    if (!nomPadre && !nomMadre) {
+        return res.status(400).json({ 
+            error: "Faltan parámetros: Se requiere al menos 'nomPadre' o 'nomMadre' para esta consulta." 
+        });
+    }
+    
+    res.status(501).json({ 
+        error: "Búsqueda Avanzada No Implementada",
+        message: `La API externa que utiliza esta aplicación solo soporta la consulta por número de DNI. No es posible realizar búsquedas por nombres de padres.`,
+        solicitado: { nomPadre, nomMadre }
+    });
+});
+
+// Endpoint 3: Consultar DNI por edad
+app.get("/buscar-por-edad", (req, res) => {
+    const { edad } = req.query;
+
+    if (!edad) {
+        return res.status(400).json({ 
+            error: "Falta el parámetro 'edad' para esta consulta." 
+        });
+    }
+    
+    res.status(501).json({ 
+        error: "Búsqueda Avanzada No Implementada",
+        message: `La API externa que utiliza esta aplicación solo soporta la consulta por número de DNI. No es posible realizar búsquedas por edad.`,
+        solicitado: { edad }
+    });
+});
+// -------------------------------------------------------------
+
 
 // --- RUTA: Proxy de descarga que fuerza al navegador a guardar el archivo (Sin cambios) ---
 app.get("/descargar-ficha", async (req, res) => {
@@ -499,57 +535,6 @@ app.get("/descargar-ficha", async (req, res) => {
     }
 });
 // --------------------------------------------------------------------------------
-
-// --- ENDPOINTS DE BÚSQUEDA AVANZADA (Se mantienen con el error 501, ya que la API de consulta es limitada) ---
-app.get("/buscar-por-nombre", (req, res) => {
-    const { nombres, apellidos } = req.query;
-
-    if (!nombres || !apellidos) {
-        return res.status(400).json({ 
-            error: "Faltan parámetros: 'nombres' y 'apellidos' son requeridos para esta consulta." 
-        });
-    }
-
-    res.status(501).json({ 
-        error: "Búsqueda Avanzada No Implementada",
-        message: `La API externa que utiliza esta aplicación solo soporta la consulta por número de DNI. No es posible realizar búsquedas inversas por nombres y apellidos.`,
-        solicitado: { nombres, apellidos }
-    });
-});
-
-app.get("/buscar-por-padres", (req, res) => {
-    const { nomPadre, nomMadre } = req.query;
-
-    if (!nomPadre && !nomMadre) {
-        return res.status(400).json({ 
-            error: "Faltan parámetros: Se requiere al menos 'nomPadre' o 'nomMadre' para esta consulta." 
-        });
-    }
-    
-    res.status(501).json({ 
-        error: "Búsqueda Avanzada No Implementada",
-        message: `La API externa que utiliza esta aplicación solo soporta la consulta por número de DNI. No es posible realizar búsquedas por nombres de padres.`,
-        solicitado: { nomPadre, nomMadre }
-    });
-});
-
-app.get("/buscar-por-edad", (req, res) => {
-    const { edad } = req.query;
-
-    if (!edad) {
-        return res.status(400).json({ 
-            error: "Falta el parámetro 'edad' para esta consulta." 
-        });
-    }
-    
-    res.status(501).json({ 
-        error: "Búsqueda Avanzada No Implementada",
-        message: `La API externa que utiliza esta aplicación solo soporta la consulta por número de DNI. No es posible realizar búsquedas por edad.`,
-        solicitado: { edad }
-    });
-});
-// ------------------------------------------------------------------------------------------------------------
-
 
 app.listen(PORT, HOST, () => {
     console.log(`Servidor corriendo en ${API_BASE_URL}`);
