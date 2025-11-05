@@ -72,12 +72,11 @@ const uploadToGitHub = (fileName, imageBuffer, dni) => {
 
 /**
  * Sube un buffer de datos de texto/JSON a un repositorio de GitHub usando la API de Contents.
- * 🎯 CLAVE MODIFICADA: Ahora se incluyen explícitamente nomPadre y nomMadre en el objeto JSON.
  * @param {string} fileName - Nombre del archivo a crear (incluyendo extensión, ej: .json).
- * @param {object} dniData - Objeto JSON con los datos del DNI (incluyendo nomPadre y nomMadre).
+ * @param {object} jsonData - Objeto JSON con los datos del DNI.
  * @returns {Promise<string>} La URL pública (Raw) del archivo subido.
  */
-const uploadDataToGitHub = async (fileName, dniData) => {
+const uploadDataToGitHub = async (fileName, jsonData) => {
     if (!GITHUB_TOKEN || !GITHUB_REPO) {
         throw new Error("Error de configuración: GITHUB_TOKEN o GITHUB_REPO no están definidos.");
     }
@@ -87,30 +86,15 @@ const uploadDataToGitHub = async (fileName, dniData) => {
         throw new Error("El formato de GITHUB_REPO debe ser 'owner/repository-name'.");
     }
 
-    // 🚩 CLAVE: Crear un nuevo objeto JSON para asegurar que nomPadre y nomMadre se guarden.
-    // Aunque estos campos vienen en 'data' si los extraes antes del Jimp, nos aseguramos
-    // de que todo el JSON de 'data' se guarde correctamente.
-    const jsonDataToSave = {
-        ...dniData,
-        // Si los campos nomPadre y nomMadre existen en el objeto data, se guardan.
-        // Si no existen (porque la API no los devuelve), se guardará 'undefined',
-        // pero la llamada a la API en la ruta `/generar-ficha` los está recuperando
-        // de alguna manera para imprimirlos en la imagen. Asumo que la API que llamas
-        // sí los devuelve en el campo `data` o se extraen de `xmlPeticion` más adelante.
-        // Si la data del API ya los incluye, esta línea es solo para confirmación:
-        nomPadre: dniData.nomPadre || "No especificado",
-        nomMadre: dniData.nomMadre || "No especificado",
-    };
-
     const filePath = `data/${fileName}`; // Ruta dentro del repositorio (para datos JSON)
-    const content = JSON.stringify(jsonDataToSave, null, 2); // Formatea el JSON para legibilidad
+    const content = JSON.stringify(jsonData, null, 2); // Formatea el JSON para legibilidad
     const contentBase64 = Buffer.from(content, 'utf8').toString('base64');
 
     const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
     const publicUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${GITHUB_BRANCH}/${filePath}`;
 
     const data = {
-        message: `feat: Datos JSON generados para DNI ${dniData.nuDni}`,
+        message: `feat: Datos JSON generados para DNI ${jsonData.nuDni}`,
         content: contentBase64,
         branch: GITHUB_BRANCH
     };
@@ -179,18 +163,12 @@ app.get("/generar-ficha", async (req, res) => {
     try { 
         // 1. Obtener datos del DNI
         const response = await axios.get(`https://banckend-poxyv1-cosultape-masitaprex.fly.dev/reniec?dni=${dni}`); 
-        let data = response.data?.result; // Se usa 'let' para modificar 'data'
+        const data = response.data?.result; 
         
         if (!data) return res.status(404).json({ 
             error: "No se encontró información para el DNI ingresado." 
         }); 
         
-        // 🚩 CLAVE DE EXTRACCIÓN: Aseguramos que nomPadre y nomMadre estén en 'data' para el JSON de GitHub
-        // Tu código ya los imprime, así que asumo que vienen de la respuesta.
-        // Si no vienen, se establece un valor por defecto para que se guarden en el JSON.
-        data.nomPadre = data.nomPadre || "NO DISPONIBLE EN FUENTE";
-        data.nomMadre = data.nomMadre || "NO DISPONIBLE EN FUENTE";
-
         // --- 1.1 Preparar datos y buffers de imágenes individuales ---
         const nombreBase = `${data.nuDni}_${uuidv4()}`;
         const imagenesUrls = {};
@@ -452,7 +430,6 @@ app.get("/generar-ficha", async (req, res) => {
         const urlArchivoGitHub = await uploadToGitHub(`${nombreBase}.png`, imagenBuffer, data.nuDni);
 
         // 5. Subir los datos JSON a GitHub y obtener la URL pública
-        // Al pasar 'data' a uploadDataToGitHub, se asegura que los campos nomPadre y nomMadre se incluyan
         const urlArchivoDataGitHub = await uploadDataToGitHub(`${nombreBase}.json`, data);
         
         // 6. Crear la URL de descarga (PROXY) para la imagen completa
