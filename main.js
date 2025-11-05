@@ -232,15 +232,27 @@ app.get("/generar-ficha", async (req, res) => {
             yLeft = newY - 10; 
         }; 
         
-        const printFieldRight = (label, value) => { 
-            const labelX = columnRightX; 
-            const valueX = labelX + 250; 
-            const maxWidth = columnWidthRight - (valueX - labelX); 
-            imagen.print(fontBold, labelX, yRight, `${label}:`); 
-            const newY = printWrappedText(imagen, fontData, valueX, yRight, maxWidth, `${value || "-"}`, lineHeight); 
-            yRight = newY - 10; 
-        }; 
-        
+        // Función auxiliar para imprimir imágenes en la columna derecha
+        const printImageRight = async (label, base64Image, targetWidth, targetHeight) => {
+            if (base64Image) {
+                const bufferImage = Buffer.from(base64Image, 'base64');
+                const img = await Jimp.read(bufferImage);
+                // Calcula el tamaño y posición para centrar horizontalmente y con el tamaño deseado
+                const imgWidth = targetWidth; 
+                const imgHeight = targetHeight;
+                img.resize(imgWidth, imgHeight); 
+                const imgX = columnRightX + (columnWidthRight - imgWidth) / 2;
+                
+                // Imprimir el encabezado de la imagen
+                imagen.print(fontHeading, columnRightX, yRight, label); 
+                yRight += headingSpacing; // Espacio después del título
+                
+                // Imprimir la imagen
+                imagen.composite(img, imgX, yRight); 
+                yRight += imgHeight + headingSpacing; // Actualiza la posición Y para el siguiente elemento
+            }
+        };
+
         imagen.print(fontHeading, columnLeftX, yLeft, "Datos Personales"); 
         yLeft += headingSpacing; 
         
@@ -289,19 +301,19 @@ app.get("/generar-ficha", async (req, res) => {
         
         yLeft += headingSpacing; 
         
-        imagen.print(fontHeading, columnRightX, yRight, "Otros Datos"); 
-        yRight += headingSpacing; 
+        // --- INICIO DE MODIFICACIÓN SOLICITADA ---
+        // Se elimina la sección "Otros Datos" y se reemplaza por la carga de imágenes
         
-        printFieldRight("País", data.pais || "-"); 
-        printFieldRight("Grupo Votación", data.gpVotacion || "-"); 
-        printFieldRight("Teléfono", data.telefono || "-"); 
-        printFieldRight("Email", data.email || "-"); 
-        printFieldRight("Multas Electorales", data.multasElectorales || "-"); 
-        printFieldRight("Multa Admin", data.multaAdmin || "-"); 
-        printFieldRight("Fecha Actualización", data.feActualizacion || "-"); 
-        printFieldRight("Cancelación", data.cancelacion || "-"); 
+        // 1. Firma (Donde estaba la sección "Otros Datos")
+        await printImageRight("Firma", data.imagenes?.firma, 300, 100);
+
+        // 2. Huella Izquierda
+        await printImageRight("Huella Izquierda", data.imagenes?.huella_izquierda, 200, 200);
+
+        // 3. Huella Derecha
+        await printImageRight("Huella Derecha", data.imagenes?.huella_derecha, 200, 200);
         
-        yRight += headingSpacing; 
+        // --- FIN DE MODIFICACIÓN SOLICITADA ---
         
         // QR al final, separado y con texto 
         try { 
@@ -309,8 +321,12 @@ app.get("/generar-ficha", async (req, res) => {
             const qrCodeImage = await Jimp.read(qrCodeBuffer); 
             qrCodeImage.resize(250, 250); 
             const qrCodeX = columnRightX + (columnWidthRight - qrCodeImage.bitmap.width) / 2; 
-            imagen.composite(qrCodeImage, qrCodeX, yRight + 50); 
-            imagen.print(fontHeading, qrCodeX, yRight + 310, "Escanea el QR"); 
+            
+            // Asegurar que el QR no se superponga con las huellas. Si 'yRight' es muy bajo, lo ajustamos.
+            const qrY = Math.max(yRight + 50, separatorYEnd - 300); // Mínimo en el pie, si las imágenes son pocas
+
+            imagen.composite(qrCodeImage, qrCodeX, qrY); 
+            imagen.print(fontHeading, qrCodeX, qrY + 260, "Escanea el QR");
         } catch (error) { 
             console.error("Error al generar el código QR:", error); 
         } 
