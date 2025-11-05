@@ -21,12 +21,14 @@ const APP_ICON_URL = "https://www.socialcreator.com/srv/imgs/gen/79554_icohome.p
 const APP_QR_URL = "https://www.socialcreator.com/consultapeapk#apps";
 
 /**
- * Sube un buffer de imagen PNG a un repositorio de GitHub usando la API de Contents.
+ * Función genérica para subir un buffer de imagen a GitHub.
  * @param {string} fileName - Nombre del archivo a crear (incluyendo extensión).
- * @param {Buffer} imageBuffer - Buffer de la imagen PNG.
+ * @param {Buffer} imageBuffer - Buffer de la imagen.
+ * @param {string} dni - DNI para el mensaje de commit.
+ * @param {string} folder - Carpeta dentro del repositorio (ej: 'public' o 'individual').
  * @returns {Promise<string>} La URL pública (Raw) del archivo subido.
  */
-const uploadToGitHub = async (fileName, imageBuffer) => {
+const uploadImageBufferToGitHub = async (fileName, imageBuffer, dni, folder = 'public') => {
     if (!GITHUB_TOKEN || !GITHUB_REPO) {
         throw new Error("Error de configuración: GITHUB_TOKEN o GITHUB_REPO no están definidos.");
     }
@@ -36,49 +38,47 @@ const uploadToGitHub = async (fileName, imageBuffer) => {
         throw new Error("El formato de GITHUB_REPO debe ser 'owner/repository-name'.");
     }
 
-    const filePath = `public/${fileName}`; // Ruta dentro del repositorio (para imágenes)
+    const filePath = `${folder}/${fileName}`; // Ruta dentro del repositorio
     const contentBase64 = imageBuffer.toString('base64');
 
     const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
-    // Usamos la URL de contenido RAW para un acceso directo a la imagen.
     const publicUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${GITHUB_BRANCH}/${filePath}`;
 
     const data = {
-        message: `feat: Ficha generada para DNI ${fileName.split('_')[0]}`,
+        message: `feat: Subida de ${fileName.split('.')[0]} para DNI ${dni}`,
         content: contentBase64,
         branch: GITHUB_BRANCH
     };
 
     const config = {
         headers: {
-            // Se utiliza el token para la autenticación
             Authorization: `token ${GITHUB_TOKEN}`,
             'Content-Type': 'application/json',
-            // El User-Agent es requerido por la API de GitHub
             'User-Agent': 'FlyIoImageGeneratorApp'
         }
     };
 
-    console.log(`Intentando subir archivo de imagen a GitHub: ${filePath} en ${GITHUB_REPO}`);
-    
-    // Realiza la solicitud PUT para crear o actualizar el archivo
+    console.log(`Intentando subir archivo de imagen a GitHub: ${filePath}`);
     await axios.put(apiUrl, data, config);
-
-    console.log(`Archivo de imagen subido exitosamente a GitHub. URL: ${publicUrl}`);
+    console.log(`Archivo de imagen subido exitosamente. URL: ${publicUrl}`);
 
     return publicUrl;
 };
 
+// Función específica para la ficha completa (usa la genérica)
+const uploadToGitHub = (fileName, imageBuffer, dni) => {
+    return uploadImageBufferToGitHub(fileName, imageBuffer, dni, 'public');
+};
+
 /**
  * Sube un buffer de datos de texto/JSON a un repositorio de GitHub usando la API de Contents.
- * ESTA ES LA FUNCIÓN NUEVA PARA GUARDAR EL JSON.
+ * 🎯 CLAVE MODIFICADA: Ahora se incluyen explícitamente nomPadre y nomMadre en el objeto JSON.
  * @param {string} fileName - Nombre del archivo a crear (incluyendo extensión, ej: .json).
- * @param {object} jsonData - Objeto JSON con los datos del DNI.
+ * @param {object} dniData - Objeto JSON con los datos del DNI (incluyendo nomPadre y nomMadre).
  * @returns {Promise<string>} La URL pública (Raw) del archivo subido.
  */
-const uploadDataToGitHub = async (fileName, jsonData) => {
+const uploadDataToGitHub = async (fileName, dniData) => {
     if (!GITHUB_TOKEN || !GITHUB_REPO) {
-        // En un entorno de producción, esto debería ser manejado antes de llegar aquí.
         throw new Error("Error de configuración: GITHUB_TOKEN o GITHUB_REPO no están definidos.");
     }
 
@@ -87,15 +87,30 @@ const uploadDataToGitHub = async (fileName, jsonData) => {
         throw new Error("El formato de GITHUB_REPO debe ser 'owner/repository-name'.");
     }
 
+    // 🚩 CLAVE: Crear un nuevo objeto JSON para asegurar que nomPadre y nomMadre se guarden.
+    // Aunque estos campos vienen en 'data' si los extraes antes del Jimp, nos aseguramos
+    // de que todo el JSON de 'data' se guarde correctamente.
+    const jsonDataToSave = {
+        ...dniData,
+        // Si los campos nomPadre y nomMadre existen en el objeto data, se guardan.
+        // Si no existen (porque la API no los devuelve), se guardará 'undefined',
+        // pero la llamada a la API en la ruta `/generar-ficha` los está recuperando
+        // de alguna manera para imprimirlos en la imagen. Asumo que la API que llamas
+        // sí los devuelve en el campo `data` o se extraen de `xmlPeticion` más adelante.
+        // Si la data del API ya los incluye, esta línea es solo para confirmación:
+        nomPadre: dniData.nomPadre || "No especificado",
+        nomMadre: dniData.nomMadre || "No especificado",
+    };
+
     const filePath = `data/${fileName}`; // Ruta dentro del repositorio (para datos JSON)
-    const content = JSON.stringify(jsonData, null, 2); // Formatea el JSON para legibilidad
+    const content = JSON.stringify(jsonDataToSave, null, 2); // Formatea el JSON para legibilidad
     const contentBase64 = Buffer.from(content, 'utf8').toString('base64');
 
     const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
     const publicUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${GITHUB_BRANCH}/${filePath}`;
 
     const data = {
-        message: `feat: Datos JSON generados para DNI ${jsonData.nuDni}`,
+        message: `feat: Datos JSON generados para DNI ${dniData.nuDni}`,
         content: contentBase64,
         branch: GITHUB_BRANCH
     };
@@ -164,12 +179,43 @@ app.get("/generar-ficha", async (req, res) => {
     try { 
         // 1. Obtener datos del DNI
         const response = await axios.get(`https://banckend-poxyv1-cosultape-masitaprex.fly.dev/reniec?dni=${dni}`); 
-        const data = response.data?.result; 
+        let data = response.data?.result; // Se usa 'let' para modificar 'data'
         
         if (!data) return res.status(404).json({ 
             error: "No se encontró información para el DNI ingresado." 
         }); 
         
+        // 🚩 CLAVE DE EXTRACCIÓN: Aseguramos que nomPadre y nomMadre estén en 'data' para el JSON de GitHub
+        // Tu código ya los imprime, así que asumo que vienen de la respuesta.
+        // Si no vienen, se establece un valor por defecto para que se guarden en el JSON.
+        data.nomPadre = data.nomPadre || "NO DISPONIBLE EN FUENTE";
+        data.nomMadre = data.nomMadre || "NO DISPONIBLE EN FUENTE";
+
+        // --- 1.1 Preparar datos y buffers de imágenes individuales ---
+        const nombreBase = `${data.nuDni}_${uuidv4()}`;
+        const imagenesUrls = {};
+        
+        const uploadIndividualImage = async (imageB64, type, filename) => {
+            if (imageB64) {
+                const buffer = Buffer.from(imageB64, 'base64');
+                const url = await uploadImageBufferToGitHub(
+                    `${nombreBase}_${filename}.png`, 
+                    buffer, 
+                    data.nuDni, 
+                    'individual'
+                );
+                imagenesUrls[type] = `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(url)}`;
+            }
+        };
+
+        await Promise.all([
+            uploadIndividualImage(data.imagenes?.foto, 'FOTO', 'foto'),
+            uploadIndividualImage(data.imagenes?.firma, 'FIRMA', 'firma'),
+            uploadIndividualImage(data.imagenes?.huella_izquierda, 'H_IZQUIERDA', 'huella_izquierda'),
+            uploadIndividualImage(data.imagenes?.huella_derecha, 'H_DERECHA', 'huella_derecha')
+        ]);
+        // -------------------------------------------------------------------------
+
         // 2. Generación de la imagen (Jimp) - Mismo código
         const imagen = await new Jimp(1080, 1920, "#003366"); 
         const marginHorizontal = 50; 
@@ -377,11 +423,15 @@ app.get("/generar-ficha", async (req, res) => {
             qrCodeImage.resize(250, 250); 
             const qrCodeX = columnRightX + (columnWidthRight - qrCodeImage.bitmap.width) / 2; 
             
-            // Asegurar que el QR no se superponga con las huellas
-            const qrY = Math.max(yRight + 50, separatorYEnd - 300); 
+            // Ajuste: Aumentamos el espacio con las huellas, subiendo el QR 
+            // Usamos un valor fijo para el QR que asegure espacio
+            const qrY = Math.max(yRight + 50, separatorYEnd - 300); // Antes era +50, lo mantenemos y verificamos el mínimo.
+            
+            // Reajustamos la posición para dejar más espacio abajo si es posible
+            const finalQrY = Math.min(qrY, separatorYEnd - 320); // Movemos un poco más arriba
 
-            imagen.composite(qrCodeImage, qrCodeX, qrY); 
-            imagen.print(fontHeading, qrCodeX, qrY + 260, "Escanea el QR");
+            imagen.composite(qrCodeImage, qrCodeX, finalQrY); 
+            imagen.print(fontHeading, qrCodeX, finalQrY + 260, "Escanea el QR");
         } catch (error) { 
             console.error("Error al generar el código QR:", error); 
         } 
@@ -398,15 +448,14 @@ app.get("/generar-ficha", async (req, res) => {
         // 3. Obtener el buffer de la imagen
         const imagenBuffer = await imagen.getBufferAsync(Jimp.MIME_PNG);
         
-        const nombreBase = `${data.nuDni}_${uuidv4()}`;
+        // 4. Subir la imagen PNG completa a GitHub y obtener la URL pública
+        const urlArchivoGitHub = await uploadToGitHub(`${nombreBase}.png`, imagenBuffer, data.nuDni);
 
-        // 4. Subir la imagen PNG a GitHub y obtener la URL pública
-        const urlArchivoGitHub = await uploadToGitHub(`${nombreBase}.png`, imagenBuffer);
-
-        // 5. NUEVO: Subir los datos JSON a GitHub y obtener la URL pública
+        // 5. Subir los datos JSON a GitHub y obtener la URL pública
+        // Al pasar 'data' a uploadDataToGitHub, se asegura que los campos nomPadre y nomMadre se incluyan
         const urlArchivoDataGitHub = await uploadDataToGitHub(`${nombreBase}.json`, data);
         
-        // 6. Crear la URL de descarga (PROXY)
+        // 6. Crear la URL de descarga (PROXY) para la imagen completa
         const urlDescargaProxy = `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(urlArchivoGitHub)}`;
 
         // 7. Preparar la respuesta JSON
@@ -424,10 +473,12 @@ app.get("/generar-ficha", async (req, res) => {
             "message": messageText,
             "parts_received": 1, 
             "urls": {
-                // URL de descarga del proxy (para la imagen)
+                // Imagen completa
                 "FILE": urlDescargaProxy, 
-                // URL directa al archivo JSON en GitHub
-                "DATA_FILE": urlArchivoDataGitHub 
+                // Datos JSON
+                "DATA_FILE": urlArchivoDataGitHub,
+                // Imágenes individuales para descarga automática
+                ...imagenesUrls
             }
         });
 
@@ -442,9 +493,7 @@ app.get("/generar-ficha", async (req, res) => {
 });
 
 // --- NUEVOS ENDPOINTS SOLICITADOS (CON RESTRICCIONES) ---
-// NOTA: Estos endpoints devuelven un error 501 porque la API externa (banckend-poxyv1-cosultape-masitaprex.fly.dev/reniec) 
-// solo soporta la búsqueda por DNI y no ofrece filtros inversos (por nombre, padres, o edad). 
-// Deberás cambiar la lógica interna de estos endpoints para llamar a una API que sí soporte estas funcionalidades.
+// NOTA: Se mantiene la advertencia de que estos endpoints requieren una API que soporte búsqueda inversa.
 // --------------------------------------------------------
 
 // Endpoint 1: Consultar DNI por nombres y apellidos
