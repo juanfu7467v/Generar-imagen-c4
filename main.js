@@ -232,12 +232,11 @@ app.get("/generar-ficha", async (req, res) => {
             yLeft = newY - 10; 
         }; 
         
-        // Función auxiliar para imprimir imágenes en la columna derecha
+        // Función auxiliar para imprimir imágenes de una sola columna (como la firma)
         const printImageRight = async (label, base64Image, targetWidth, targetHeight) => {
             if (base64Image) {
                 const bufferImage = Buffer.from(base64Image, 'base64');
                 const img = await Jimp.read(bufferImage);
-                // Calcula el tamaño y posición para centrar horizontalmente y con el tamaño deseado
                 const imgWidth = targetWidth; 
                 const imgHeight = targetHeight;
                 img.resize(imgWidth, imgHeight); 
@@ -252,6 +251,63 @@ app.get("/generar-ficha", async (req, res) => {
                 yRight += imgHeight + headingSpacing; // Actualiza la posición Y para el siguiente elemento
             }
         };
+
+        // Función auxiliar para imprimir dos imágenes a la misma altura (huellas)
+        const printDualImagesRight = async (base64ImageLeft, labelLeft, base64ImageRight, labelRight, targetWidth, targetHeight) => {
+            const bufferLeft = base64ImageLeft ? Buffer.from(base64ImageLeft, 'base64') : null;
+            const bufferRight = base64ImageRight ? Buffer.from(base64ImageRight, 'base64') : null;
+            
+            // Si no hay ninguna huella, simplemente salimos
+            if (!bufferLeft && !bufferRight) return;
+
+            // Constantes de colocación
+            const imgWidth = targetWidth; 
+            const imgHeight = targetHeight;
+            const separation = 50;
+            const totalWidth = imgWidth * 2 + separation;
+            
+            // X inicial para centrar ambas huellas en la columna derecha
+            const startX = columnRightX + (columnWidthRight - totalWidth) / 2;
+            
+            // Posición de la imagen izquierda
+            const imgLeftX = startX;
+            // Posición de la imagen derecha
+            const imgRightX = startX + imgWidth + separation;
+
+            // Imprimir etiquetas
+            const labelY = yRight;
+            if (bufferLeft) {
+                // Centrar texto sobre la imagen izquierda
+                const textWidthLeft = Jimp.measureText(fontHeading, labelLeft);
+                const textXLeft = imgLeftX + (imgWidth - textWidthLeft) / 2;
+                imagen.print(fontHeading, textXLeft, labelY, labelLeft);
+            }
+            if (bufferRight) {
+                // Centrar texto sobre la imagen derecha
+                const textWidthRight = Jimp.measureText(fontHeading, labelRight);
+                const textXRight = imgRightX + (imgWidth - textWidthRight) / 2;
+                imagen.print(fontHeading, textXRight, labelY, labelRight);
+            }
+            
+            yRight += headingSpacing; // Espacio después de los títulos
+
+            // Imprimir imágenes
+            const imageY = yRight;
+            if (bufferLeft) {
+                const imgLeft = await Jimp.read(bufferLeft);
+                imgLeft.resize(imgWidth, imgHeight);
+                imagen.composite(imgLeft, imgLeftX, imageY);
+            }
+
+            if (bufferRight) {
+                const imgRight = await Jimp.read(bufferRight);
+                imgRight.resize(imgWidth, imgHeight);
+                imagen.composite(imgRight, imgRightX, imageY);
+            }
+
+            yRight += imgHeight + headingSpacing; // Actualiza la posición Y para el siguiente elemento/QR
+        };
+
 
         imagen.print(fontHeading, columnLeftX, yLeft, "Datos Personales"); 
         yLeft += headingSpacing; 
@@ -301,19 +357,18 @@ app.get("/generar-ficha", async (req, res) => {
         
         yLeft += headingSpacing; 
         
-        // --- INICIO DE MODIFICACIÓN SOLICITADA ---
-        // Se elimina la sección "Otros Datos" y se reemplaza por la carga de imágenes
-        
-        // 1. Firma (Donde estaba la sección "Otros Datos")
+        // 1. Firma (Usa la función de una sola columna)
         await printImageRight("Firma", data.imagenes?.firma, 300, 100);
 
-        // 2. Huella Izquierda
-        await printImageRight("Huella Izquierda", data.imagenes?.huella_izquierda, 200, 200);
-
-        // 3. Huella Derecha
-        await printImageRight("Huella Derecha", data.imagenes?.huella_derecha, 200, 200);
-        
-        // --- FIN DE MODIFICACIÓN SOLICITADA ---
+        // 2. Huellas (Usa la nueva función de doble columna)
+        await printDualImagesRight(
+            data.imagenes?.huella_izquierda, 
+            "H. Izquierda", // Texto reducido
+            data.imagenes?.huella_derecha, 
+            "H. Derecha",   // Texto reducido
+            180, 
+            200
+        );
         
         // QR al final, separado y con texto 
         try { 
@@ -322,8 +377,8 @@ app.get("/generar-ficha", async (req, res) => {
             qrCodeImage.resize(250, 250); 
             const qrCodeX = columnRightX + (columnWidthRight - qrCodeImage.bitmap.width) / 2; 
             
-            // Asegurar que el QR no se superponga con las huellas. Si 'yRight' es muy bajo, lo ajustamos.
-            const qrY = Math.max(yRight + 50, separatorYEnd - 300); // Mínimo en el pie, si las imágenes son pocas
+            // Asegurar que el QR no se superponga con las huellas
+            const qrY = Math.max(yRight + 50, separatorYEnd - 300); 
 
             imagen.composite(qrCodeImage, qrCodeX, qrY); 
             imagen.print(fontHeading, qrCodeX, qrY + 260, "Escanea el QR");
