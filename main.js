@@ -20,6 +20,66 @@ const GITHUB_BRANCH = "main";
 const APP_ICON_URL = "https://www.socialcreator.com/srv/imgs/gen/79554_icohome.png";
 const APP_QR_URL = "https://www.socialcreator.com/consultapeapk#apps";
 
+
+/**
+ * 🆕 FUNCIÓN DE CACHE: Revisa la carpeta 'public/' en GitHub por un DNI.
+ * Busca cualquier archivo que empiece con ${dni}_.
+ * @param {string} dni - El DNI a buscar.
+ * @returns {Promise<string|null>} La URL pública (Raw) del archivo encontrado o null.
+ */
+const checkIfDniExists = async (dni) => {
+    if (!GITHUB_TOKEN || !GITHUB_REPO) {
+        console.error("Error de configuración para la caché: GITHUB_TOKEN o GITHUB_REPO no están definidos.");
+        return null; // Si no hay credenciales, no se puede verificar la caché.
+    }
+
+    const [owner, repo] = GITHUB_REPO.split('/');
+    if (!owner || !repo) return null;
+
+    // Ruta de la carpeta 'public' en la API de Contenidos de GitHub
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/public`;
+
+    const config = {
+        headers: {
+            Authorization: `token ${GITHUB_TOKEN}`,
+            'User-Agent': 'FlyIoImageGeneratorApp'
+        }
+    };
+
+    try {
+        // 1. Obtener la lista de archivos en la carpeta 'public/'
+        const response = await axios.get(apiUrl, config);
+        const files = response.data;
+        
+        // 2. Buscar un archivo que comience con el patrón DNI_
+        const existingFile = files.find(file => 
+            file.type === 'file' && 
+            file.name.startsWith(`${dni}_`) && 
+            file.name.endsWith('.png')
+        );
+
+        if (existingFile) {
+            console.log(`✅ Ficha de DNI ${dni} encontrada en caché: ${existingFile.name}`);
+            // 3. Devolver la URL Raw del contenido
+            return `https://raw.githubusercontent.com/${owner}/${repo}/${GITHUB_BRANCH}/public/${existingFile.name}`;
+        }
+
+        console.log(`❌ Ficha de DNI ${dni} NO encontrada en caché. Se procederá a generar.`);
+        return null;
+
+    } catch (error) {
+        // Un 404 significa que la carpeta 'public' no existe o la repo es privada. 
+        if (error.response && error.response.status === 404) {
+            console.warn("ADVERTENCIA: Carpeta 'public' no encontrada o acceso denegado en GitHub. Continuando con la generación.");
+            return null;
+        }
+        console.error("Error al verificar la caché de GitHub:", error.message);
+        // Si hay un error, se ignora la caché y se intenta generar.
+        return null; 
+    }
+};
+
+
 /**
  * Sube un buffer de imagen PNG a un repositorio de GitHub usando la API de Contents.
  * El path está fijo a 'public/'.
@@ -71,9 +131,6 @@ const uploadToGitHub = async (fileName, imageBuffer) => {
     return publicUrl;
 };
 
-// ⭐ FUNCIÓN ELIMINADA: uploadDataToGitHub ha sido removida según la solicitud.
-// Su código ya no existe en este archivo.
-
 // Función para generar marcas de agua (sin cambios)
 const generarMarcaDeAgua = async (imagen) => {
     const marcaAgua = await Jimp.read(imagen.bitmap.width, imagen.bitmap.height, 0x00000000);
@@ -113,13 +170,41 @@ const printWrappedText = (image, font, x, y, maxWidth, text, lineHeight) => {
     return currentY + lineHeight; 
 };
 
-// --- RUTA MODIFICADA: Genera la ficha, solo guarda la imagen, y devuelve la URL ---
+// --- RUTA MODIFICADA: Genera la ficha, incluye lógica de cache ---
 app.get("/generar-ficha", async (req, res) => {
     const { dni } = req.query;
     if (!dni) return res.status(400).json({ error: "Falta el parámetro DNI" });
+    
+    const dateNow = new Date().toISOString();
 
     try { 
-        // 1. Obtener datos del DNI
+        // 1. 🔍 LÓGICA DE CACHE: Verificar si la imagen ya existe en GitHub
+        const cachedUrl = await checkIfDniExists(dni);
+        
+        if (cachedUrl) {
+            // Si la imagen existe, devolver la respuesta inmediatamente.
+            const urlDescargaProxy = `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(cachedUrl)}`;
+            const messageText = `DNI : ${dni}\nESTADO : FICHA ENCONTRADA EN CACHÉ DE GITHUB (/public).`;
+            
+            return res.json({
+                "bot": "Consulta pe",
+                "chat_id": 7658983973, 
+                "date": dateNow,
+                "fields": { "dni": dni },
+                "from_id": 7658983973, 
+                "message": messageText,
+                "parts_received": 1, 
+                "urls": {
+                    "FILE": urlDescargaProxy, 
+                }
+            });
+        }
+        
+        // ----------------------------------------------------
+        // 2. 🚀 LÓGICA DE GENERACIÓN (Si no existe en caché)
+        // ----------------------------------------------------
+        
+        // Obtener datos del DNI (Consulta a la API externa)
         const response = await axios.get(`https://banckend-poxyv1-cosultape-masitaprex.fly.dev/reniec?dni=${dni}`); 
         const data = response.data?.result; 
         
@@ -127,7 +212,7 @@ app.get("/generar-ficha", async (req, res) => {
             error: "No se encontró información para el DNI ingresado." 
         }); 
         
-        // 2. Generación de la imagen (Jimp) - Mismo código
+        // 3. Generación de la imagen (Jimp) - Mismo código
         const imagen = await new Jimp(1080, 1920, "#003366"); 
         const marginHorizontal = 50; 
         const columnLeftX = marginHorizontal; 
@@ -354,22 +439,22 @@ app.get("/generar-ficha", async (req, res) => {
             "Esta imagen es solo informativa. No representa un documento oficial ni tiene validez legal." 
         ); 
         
-        // 3. Obtener el buffer de la imagen
+        // 4. Obtener el buffer de la imagen
         const imagenBuffer = await imagen.getBufferAsync(Jimp.MIME_PNG);
         
+        // 5. Generar nombre con UUID
         const nombreBase = `${data.nuDni}_${uuidv4()}`;
 
-        // 4. Subir la imagen PNG a GitHub y obtener la URL pública
+        // 6. Subir la imagen PNG a GitHub y obtener la URL pública
         const urlArchivoGitHub = await uploadToGitHub(`${nombreBase}.png`, imagenBuffer);
 
-        // 5. Lógica de subida de JSON ELIMINADA.
+        // 7. Lógica de subida de JSON ELIMINADA.
 
-        // 6. Crear la URL de descarga (PROXY)
+        // 8. Crear la URL de descarga (PROXY)
         const urlDescargaProxy = `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(urlArchivoGitHub)}`;
 
-        // 7. Preparar la respuesta JSON (Quitamos la referencia a DATA_FILE y ajustamos el mensaje)
-        const dateNow = new Date().toISOString();
-        // ⭐ MODIFICACIÓN CLAVE: Ajuste en el mensaje
+        // 9. Preparar la respuesta JSON (Quitamos la referencia a DATA_FILE y ajustamos el mensaje)
+        // ⭐ CLAVE: Ajuste en el mensaje
         const messageText = `DNI : ${data.nuDni}\nAPELLIDO PATERNO : ${data.apePaterno}\nAPELLIDO MATERNO : ${data.apeMaterno}\nNOMBRES : ${data.preNombres}\nESTADO : FICHA GENERADA Y GUARDADA EN GITHUB (/public).`;
 
         res.json({
