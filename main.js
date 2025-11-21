@@ -184,7 +184,9 @@ app.get("/generar-ficha", async (req, res) => {
         if (cachedUrl) {
             // Si la imagen existe, devolver la respuesta inmediatamente.
             const urlDescargaProxy = `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(cachedUrl)}`;
-            const messageText = `DNI : ${dni}\nESTADO : FICHA ENCONTRADA EN CACHÉ DE GITHUB (/public).`;
+            
+            // ⭐ CAMBIO SOLICITADO AQUÍ
+            const messageText = `DNI : ${dni}\nESTADO : RESULTADO ENCONTRADO EXITOSAMENTE.`;
             
             return res.json({
                 "bot": "Consulta pe",
@@ -453,8 +455,8 @@ app.get("/generar-ficha", async (req, res) => {
         // 8. Crear la URL de descarga (PROXY)
         const urlDescargaProxy = `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(urlArchivoGitHub)}`;
 
-        // 9. Preparar la respuesta JSON (Quitamos la referencia a DATA_FILE y ajustamos el mensaje)
-        // ⭐ CLAVE: Ajuste en el mensaje
+        // 9. Preparar la respuesta JSON (Ajustamos el mensaje)
+        // El mensaje original de generación no se toca, ya que solo solicitaste el cambio para el caché.
         const messageText = `DNI : ${data.nuDni}\nAPELLIDO PATERNO : ${data.apePaterno}\nAPELLIDO MATERNO : ${data.apeMaterno}\nNOMBRES : ${data.preNombres}\nESTADO : FICHA GENERADA Y GUARDADA EN GITHUB (/public).`;
 
         res.json({
