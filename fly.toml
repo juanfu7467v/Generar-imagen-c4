@@ -1,10 +1,10 @@
-# fly.toml app configuration file generated for imagen-v2 on 2025-09-11T12:25:46Z
+# fly.toml app configuration file generated for gdni-imagen-v2 on 2025-11-21T13:23:11Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'imagen-v2'
-primary_region = 'gru'
+app = 'gdni-imagen-v2'
+primary_region = 'iad'
 
 [build]
 
@@ -15,9 +15,6 @@ primary_region = 'gru'
   auto_start_machines = true
   min_machines_running = 0
   processes = ['app']
-  # 🔑 CLAVE: Define el tiempo máximo que una máquina inactiva esperará
-  # antes de ser apagada (por defecto es 5m). '4m' para 4 minutos.
-  stop_machine_timeout = '4m'
 
 [[vm]]
   memory = '1gb'
