@@ -12,6 +12,10 @@ const HOST = "0.0.0.0";
 // 🎯 CLAVE: Definir la URL base pública si no se proporciona como variable de entorno
 const API_BASE_URL = process.env.API_BASE_URL || "https://imagen-v2.fly.dev";
 
+// --- Configuración de APIs ---
+const API_PRIMARY_URL = "https://banckend-poxyv1-cosultape-masitaprex.fly.dev/reniec";
+const API_FALLBACK_URL = "https://web-production-75681.up.railway.app/dni"; // API de respaldo
+
 // --- Configuración de GitHub (Se mantiene igual) ---
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const GITHUB_REPO = process.env.GITHUB_REPO; // Formato: "usuario/repositorio"
@@ -170,12 +174,158 @@ const printWrappedText = (image, font, x, y, maxWidth, text, lineHeight) => {
     return currentY + lineHeight; 
 };
 
-// --- RUTA MODIFICADA: Genera la ficha, incluye lógica de cache ---
+/**
+ * 🌟 NUEVA FUNCIÓN: Normaliza los datos de la API de respaldo al formato de la API primaria.
+ * @param {object} fallbackData - La respuesta JSON de la API de respaldo.
+ * @returns {object} Un objeto de datos normalizado (similar al formato de la API primaria).
+ */
+const normalizeFallbackData = (fallbackData) => {
+    const message = fallbackData.message || '';
+    const lines = message.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    
+    // Función auxiliar para extraer el valor después del separador (ej: ":")
+    const getValue = (key, rawLines) => {
+        const line = rawLines.find(l => l.startsWith(key));
+        return line ? line.split(':')[1]?.trim().replace(/\[.*?\]/g, '').trim() : null; // Limpia las etiquetas como [GÉNERO]
+    };
+    
+    // Función auxiliar para extraer el valor de una línea simple
+    const getSimpleValue = (key, rawLines) => {
+        const line = rawLines.find(l => l.startsWith(key));
+        // Devuelve el valor después de la clave y el separador (:)
+        return line ? line.split(':')[1]?.trim() : null;
+    };
+    
+    // Función auxiliar para extraer el valor en un bloque
+    const getBlockValue = (blockStart, key, rawLines) => {
+        const startIndex = rawLines.findIndex(l => l.includes(blockStart));
+        if (startIndex === -1) return null;
+
+        for (let i = startIndex + 1; i < rawLines.length; i++) {
+            const line = rawLines[i];
+            // Si encuentra otra sección, para
+            if (line.includes(']')) break; 
+            
+            // Si la línea contiene la clave
+            if (line.startsWith(key)) {
+                return line.split(':')[1]?.trim();
+            }
+        }
+        return null;
+    };
+    
+    // Función para obtener la dirección completa
+    const getFullAddress = (rawLines) => {
+        // Buscamos la línea que comienza con "DIRECCION :"
+        const direccionLine = rawLines.find(l => l.startsWith('DIRECCION :'));
+        if (!direccionLine) return null;
+        
+        // Removemos "DIRECCION :" y el texto del DNI que parece ser el inicio de la línea
+        // La estructura es a veces "DIRECCION : CALLE HOLBEIN 172 URB. SAN BORJA📍] UBICACION"
+        let fullAddress = direccionLine.split(':')[1]?.trim() || '';
+        
+        // Eliminamos todo lo que está después del primer caracter de etiqueta (📍)
+        const blockSeparatorIndex = fullAddress.indexOf('📍');
+        if (blockSeparatorIndex !== -1) {
+            fullAddress = fullAddress.substring(0, blockSeparatorIndex).trim();
+        }
+        
+        return fullAddress;
+    };
+
+    // --- Mapeo de datos ---
+    const dni = fallbackData.dni;
+    const nombres = getValue('NOMBRES', lines);
+    const apellidosCompletos = getValue('APELLIDOS', lines);
+    const [apePaterno, apeMaterno] = apellidosCompletos?.split(' ') || [];
+    
+    // Extracción de datos con limpieza de etiquetas
+    const ubigeoReniec = getValue('UBIGEO RENIEC', lines);
+    const ubigeoInei = getValue('UBIGEO INEI', lines);
+    const ubigeoSunat = getValue('UBIGEO SUNAT', lines);
+    
+    const feNacimientoRaw = getValue('FECHA NACIMIENTO', lines);
+    const feNacimiento = feNacimientoRaw ? feNacimientoRaw.split('(')[0]?.trim() : null;
+    
+    // La API de respaldo a veces usa una sola línea para el DNI en el mensaje, ignoramos el primer valor que parece ser de control
+    const nomPadre = getSimpleValue('PADRE', lines);
+    const nomMadre = getSimpleValue('MADRE', lines);
+    
+    // La URL de la foto viene separada
+    const fotoUrl = fallbackData.urls?.IMAGE;
+
+    return {
+        // Datos Personales
+        nuDni: dni,
+        apePaterno: apePaterno,
+        apeMaterno: apeMaterno,
+        preNombres: nombres,
+        feNacimiento: feNacimiento,
+        sexo: getSimpleValue('GENERO', lines),
+        estadoCivil: getSimpleValue('ESTADO CIVIL', lines),
+        estatura: getSimpleValue('ESTATURA', lines),
+        gradoInstruccion: getSimpleValue('GRADO INSTRUCCION', lines),
+        deRestriccion: getSimpleValue('RESTRICCION', lines),
+        donaOrganos: "-", // No disponible en esta API de respaldo
+
+        // Información Adicional
+        feEmision: getSimpleValue('FECHA EMISION', lines),
+        feInscripcion: getSimpleValue('FECHA INSCRIPCION', lines),
+        feCaducidad: getSimpleValue('FECHA CADUCIDAD', lines),
+        feFallecimiento: "-", // No disponible en esta API de respaldo
+        nomPadre: nomPadre,
+        nomMadre: nomMadre,
+
+        // Datos de Dirección
+        desDireccion: getFullAddress(lines),
+        depaDireccion: getBlockValue('📍] DIRECCION', 'DEPARTAMENTO', lines),
+        provDireccion: getBlockValue('📍] DIRECCION', 'PROVINCIA', lines),
+        distDireccion: getBlockValue('📍] DIRECCION', 'DISTRITO', lines),
+
+        // Ubicación
+        ubicacion: {
+            ubigeo_reniec: ubigeoReniec,
+            ubigeo_inei: ubigeoInei,
+            ubigeo_sunat: ubigeoSunat,
+            codigo_postal: getSimpleValue('CODIGO POSTAL', lines),
+        },
+        
+        // Imágenes (solo la foto está disponible, la firma/huellas se marcarán como nulas)
+        imagenes: {
+            // El Jimp actual espera una imagen en Base64. Debemos descargarla y convertirla.
+            foto_url: fotoUrl, // Usamos una clave temporal para la URL
+            firma: null,
+            huella_izquierda: null,
+            huella_derecha: null,
+        }
+    };
+};
+
+/**
+ * 🌟 NUEVA FUNCIÓN: Descarga una imagen desde una URL y la convierte a Base64.
+ * @param {string} url - La URL de la imagen.
+ * @returns {Promise<string>} La imagen en Base64 o null si falla.
+ */
+const imageUrlToBase64 = async (url) => {
+    if (!url) return null;
+    try {
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
+        return Buffer.from(response.data).toString('base64');
+    } catch (error) {
+        console.error("Error al descargar la imagen de la URL:", url, error.message);
+        return null;
+    }
+}
+
+
+// --- RUTA MODIFICADA: Genera la ficha, incluye lógica de cache y FALLBACK ---
 app.get("/generar-ficha", async (req, res) => {
     const { dni } = req.query;
     if (!dni) return res.status(400).json({ error: "Falta el parámetro DNI" });
     
     const dateNow = new Date().toISOString();
+    let apiUsed = "PRIMARY"; // Indicador de qué API se usó
+    let data = null;
 
     try { 
         // 1. 🔍 LÓGICA DE CACHE: Verificar si la imagen ya existe en GitHub
@@ -185,7 +335,6 @@ app.get("/generar-ficha", async (req, res) => {
             // Si la imagen existe, devolver la respuesta inmediatamente.
             const urlDescargaProxy = `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(cachedUrl)}`;
             
-            // ⭐ CAMBIO SOLICITADO AQUÍ
             const messageText = `DNI : ${dni}\nESTADO : RESULTADO ENCONTRADO EXITOSAMENTE.`;
             
             return res.json({
@@ -206,15 +355,59 @@ app.get("/generar-ficha", async (req, res) => {
         // 2. 🚀 LÓGICA DE GENERACIÓN (Si no existe en caché)
         // ----------------------------------------------------
         
-        // Obtener datos del DNI (Consulta a la API externa)
-        const response = await axios.get(`https://banckend-poxyv1-cosultape-masitaprex.fly.dev/reniec?dni=${dni}`); 
-        const data = response.data?.result; 
+        try {
+            // 2.1. Intento con la API Primaria
+            const response = await axios.get(`${API_PRIMARY_URL}?dni=${dni}`); 
+            data = response.data?.result; 
+
+            if (!data) {
+                // Si la respuesta es exitosa pero sin 'result', pasamos a la API de respaldo
+                throw new Error("Respuesta primaria vacía o inesperada.");
+            }
+
+        } catch (primaryError) {
+            // 2.2. Manejo de errores de la API Primaria y Fallback
+            const isTokenError = primaryError.response && 
+                                 primaryError.response.data && 
+                                 primaryError.response.data.message === "Error Leder Data" &&
+                                 primaryError.response.data.detalle?.error === "token without credits";
+
+            if (isTokenError || primaryError.message.includes("Respuesta primaria vacía")) {
+                console.log("⚠️ Error de Token o Respuesta Primaria Inesperada. Intentando con la API de respaldo...");
+                apiUsed = "FALLBACK";
+                
+                // 2.2.1. Intento con la API de Respaldo
+                const fallbackResponse = await axios.get(`${API_FALLBACK_URL}?dni=${dni}`);
+                const fallbackData = fallbackResponse.data;
+
+                if (fallbackData.status === "ok" && fallbackData.message) {
+                    console.log("✅ Datos obtenidos de la API de respaldo. Normalizando...");
+                    // 2.2.2. Normalizar los datos al formato esperado
+                    data = normalizeFallbackData(fallbackData);
+                    
+                    // 2.2.3. Descargar y convertir la foto de la URL a Base64
+                    const fotoBase64 = await imageUrlToBase64(data.imagenes.foto_url);
+                    // Reemplazamos el campo foto con la imagen en Base64
+                    data.imagenes.foto = fotoBase64; 
+                    delete data.imagenes.foto_url;
+                } else {
+                    throw new Error("No se pudo obtener información del DNI con la API de respaldo.");
+                }
+
+            } else {
+                // Si es otro tipo de error de la API primaria, lo lanzamos
+                throw primaryError;
+            }
+        }
         
+        // Si después de la lógica anterior `data` es nulo, significa que no se encontró nada.
         if (!data) return res.status(404).json({ 
-            error: "No se encontró información para el DNI ingresado." 
+            error: "No se encontró información para el DNI ingresado.",
+            api_intento: apiUsed
         }); 
         
-        // 3. Generación de la imagen (Jimp) - Mismo código
+        // 3. Generación de la imagen (Jimp) - **El código de aquí en adelante NO NECESITA CAMBIOS**
+        //    ya que hemos normalizado los datos de la API de respaldo al formato esperado.
         const imagen = await new Jimp(1080, 1920, "#003366"); 
         const marginHorizontal = 50; 
         const columnLeftX = marginHorizontal; 
@@ -268,11 +461,14 @@ app.get("/generar-ficha", async (req, res) => {
         
         // Datos en columnas (Mismo código)
         const printFieldLeft = (label, value) => { 
+            // Manejar valores nulos o indefinidos
+            const displayValue = value === null || value === undefined ? "-" : String(value);
+
             const labelX = columnLeftX; 
             const valueX = labelX + 250; 
             const maxWidth = columnWidthLeft - (valueX - labelX); 
             imagen.print(fontBold, labelX, yLeft, `${label}:`); 
-            const newY = printWrappedText(imagen, fontData, valueX, yLeft, maxWidth, `${value || "-"}`, lineHeight); 
+            const newY = printWrappedText(imagen, fontData, valueX, yLeft, maxWidth, `${displayValue}`, lineHeight); 
             yLeft = newY - 10; 
         }; 
         
@@ -357,7 +553,7 @@ app.get("/generar-ficha", async (req, res) => {
         yLeft += headingSpacing; 
         
         printFieldLeft("DNI", data.nuDni); 
-        printFieldLeft("Apellidos", `${data.apePaterno} ${data.apeMaterno} ${data.apCasada || ''}`.trim()); 
+        printFieldLeft("Apellidos", `${data.apePaterno || ''} ${data.apeMaterno || ''} ${data.apCasada || ''}`.trim()); 
         printFieldLeft("Prenombres", data.preNombres); 
         printFieldLeft("Nacimiento", data.feNacimiento); 
         printFieldLeft("Sexo", data.sexo); 
@@ -456,8 +652,7 @@ app.get("/generar-ficha", async (req, res) => {
         const urlDescargaProxy = `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(urlArchivoGitHub)}`;
 
         // 9. Preparar la respuesta JSON (Ajustamos el mensaje)
-        // El mensaje original de generación no se toca, ya que solo solicitaste el cambio para el caché.
-        const messageText = `DNI : ${data.nuDni}\nAPELLIDO PATERNO : ${data.apePaterno}\nAPELLIDO MATERNO : ${data.apeMaterno}\nNOMBRES : ${data.preNombres}\nESTADO : FICHA GENERADA Y GUARDADA EN GITHUB (/public).`;
+        const messageText = `DNI : ${data.nuDni}\nAPELLIDO PATERNO : ${data.apePaterno}\nAPELLIDO MATERNO : ${data.apeMaterno}\nNOMBRES : ${data.preNombres}\nESTADO : FICHA GENERADA Y GUARDADA EN GITHUB (/public). (API: ${apiUsed})`;
 
         res.json({
             "bot": "Consulta pe",
@@ -479,8 +674,9 @@ app.get("/generar-ficha", async (req, res) => {
     } catch (error) { 
         console.error("Error general en el proceso:", error); 
         res.status(500).json({ 
-            error: "Error al generar la ficha o subir a GitHub", 
-            detalle: error.message 
+            error: "Error al generar la ficha o subir a GitHub (o ambas APIs fallaron)", 
+            detalle: error.message,
+            api_intento: apiUsed
         }); 
     } 
 
