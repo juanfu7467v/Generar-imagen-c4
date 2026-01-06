@@ -1,3 +1,15 @@
+Me ayudas por favor a hagregar la cabezera nesesaria o lo que falta para que el resultado llegue correctamente actualmente al consuar ejemplo un DNI 
+https://gdni-imagen-v2.fly.dev/generar-ficha?dni=73622432
+El resultado llega así 
+{"bot":"Consulta pe","chat_id":7658983973,"date":"2026-01-06T17:02:34.724Z","fields":{"dni":"73622432"},"from_id":7658983973,"message":"DNI : 73622432\nESTADO : RESULTADO ENCONTRADO EXITOSAMENTE.","parts_received":1,"urls":{"FILE":"https://gdni-imagen-v2.fly.dev/descargar-ficha?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjuanfu7467v%2FGenerar-imagen-c4%2Fmain%2Fpublic%2F73622432_2e1b1a13-7d3c-4534-9a04-d10ffd9ecbf1.png"}}
+
+Pero al habrir la imagen 
+https://gdni-imagen-v2.fly.dev/descargar-ficha?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjuanfu7467v%2FGenerar-imagen-c4%2Fmain%2Fpublic%2F73622432_2e1b1a13-7d3c-4534-9a04-d10ffd9ecbf1.png
+Y en vez de cargar la imagen sale 
+Error al procesar la descarga del archivo.
+
+No elimines nada de lo que ya existe 
+
 const express = require("express");
 const axios = require("axios");
 const Jimp = require("jimp");
@@ -14,6 +26,7 @@ const API_BASE_URL = process.env.API_BASE_URL || "https://imagen-v2.fly.dev";
 
 // --- URLs de las APIs ---
 const PRIMARY_API_URL = "https://banckend-poxyv1-cosultape-masitaprex.fly.dev/reniec";
+const SECONDARY_API_URL = "https://web-production-75681.up.railway.app/dni";
 
 // --- Configuración de GitHub (Se mantiene igual) ---
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
@@ -173,162 +186,359 @@ const printWrappedText = (image, font, x, y, maxWidth, text, lineHeight) => {
     return currentY + lineHeight; 
 };
 
-// --- RUTA: Generar Ficha ---
-app.get("/generar-ficha", async (req, res) => {
-    const { dni } = req.query;
-    const dateNow = new Date().toISOString();
-
-    if (!dni) {
-        return res.status(400).json({ error: "El parámetro 'dni' es requerido." });
+/**
+ * Función que procesa los datos de la segunda API (API de Respaldo)
+ * y los formatea a un objeto similar al de la API original, facilitando
+ * la continuidad del código de generación de la ficha.
+ * @param {object} rawData - Respuesta completa de la API de respaldo.
+ * @returns {object|null} Objeto de datos Reniec formateado.
+ */
+const handleSecondApiData = (rawData) => {
+    if (rawData.status !== "ok" || !rawData.message) {
+        return null;
     }
 
+    const message = rawData.message;
+    const lines = message.split('\n');
+    const data = {
+        nuDni: rawData.dni,
+        imagenes: {
+            foto: rawData.urls.IMAGE, // En esta API es una URL, no base64, se maneja como una URL de foto.
+            firma: null,
+            huella_derecha: null,
+            huella_izquierda: null,
+        },
+        // Inicializamos campos clave
+        apePaterno: null,
+        apeMaterno: null,
+        preNombres: null,
+        feNacimiento: null,
+        sexo: null,
+        estadoCivil: null,
+        estatura: null,
+        gradoInstruccion: null,
+        deRestriccion: null,
+        donaOrganos: "-", // No disponible
+        feEmision: null,
+        feInscripcion: null,
+        feCaducidad: null,
+        feFallecimiento: null, // No disponible
+        nomPadre: null,
+        nomMadre: null,
+        desDireccion: null,
+        depaDireccion: null,
+        provDireccion: null,
+        distDireccion: null,
+        apCasada: null,
+        ubicacion: {
+            ubigeo_reniec: null,
+            ubigeo_inei: null,
+            ubigeo_sunat: null,
+            codigo_postal: null,
+        }
+    };
+
+    // Mapeo simple de las líneas del mensaje
+    const extractValue = (label) => {
+        const line = lines.find(l => l.startsWith(label));
+        if (line) {
+            // Dividir por ':' y tomar todo lo que sigue después del primer ':'
+            const parts = line.split(':');
+            if (parts.length > 1) {
+                return parts.slice(1).join(':').trim();
+            }
+        }
+        return null;
+    };
+
+    // Procesamiento de campos
+    const apellidosLine = extractValue("APELLIDOS");
+    if (apellidosLine) {
+        const nombresCompleto = extractValue("NOMBRES");
+        const partesApellidos = apellidosLine.split(' ');
+        data.apePaterno = partesApellidos[0] || null;
+        data.apeMaterno = partesApellidos[1] || null;
+        data.preNombres = nombresCompleto;
+    }
+
+    // Datos Personales
+    data.sexo = extractValue("GENERO")?.replace('📅] NACIMIENTO', '').trim() || null;
+    data.feNacimiento = extractValue("FECHA NACIMIENTO")?.split('(')[0]?.trim() || null;
+    data.gradoInstruccion = extractValue("GRADO INSTRUCCION");
+    data.estadoCivil = extractValue("ESTADO CIVIL");
+    data.estatura = extractValue("ESTATURA");
+    data.feInscripcion = extractValue("FECHA INSCRIPCION");
+    data.feEmision = extractValue("FECHA EMISION");
+    data.feCaducidad = extractValue("FECHA CADUCIDAD");
+    data.nomPadre = extractValue("PADRE");
+    data.nomMadre = extractValue("MADRE");
+    data.deRestriccion = extractValue("RESTRICCION");
+
+    // Dirección
+    data.depaDireccion = extractValue("DEPARTAMENTO : LIMA📍] DIRECCION") ? extractValue("DEPARTAMENTO : LIMA📍] DIRECCION").split('LIMA')[1]?.trim() : (extractValue("DEPARTAMENTO")?.split('LIMA')[1]?.trim() || extractValue("DEPARTAMENTO"));
+    data.provDireccion = extractValue("PROVINCIA : LIMA") ? extractValue("PROVINCIA : LIMA").split('LIMA')[1]?.trim() : (extractValue("PROVINCIA")?.split('LIMA')[1]?.trim() || extractValue("PROVINCIA"));
+    data.distDireccion = extractValue("DISTRITO : JESUS MARIA") ? extractValue("DISTRITO : JESUS MARIA").split('JESUS MARIA')[1]?.trim() : (extractValue("DISTRITO")?.split('JESUS MARIA')[1]?.trim() || extractValue("DISTRITO"));
+    data.desDireccion = extractValue("DIRECCION");
+
+    // Ubicación
+    data.ubicacion.ubigeo_reniec = extractValue("UBIGEO RENIEC");
+    data.ubicacion.ubigeo_inei = extractValue("UBIGEO INEI");
+    data.ubicacion.ubigeo_sunat = extractValue("UBIGEO SUNAT");
+    data.ubicacion.codigo_postal = extractValue("CODIGO POSTAL");
+    
+    // Devolvemos el objeto formateado.
+    return data;
+};
+
+/**
+ * Función para descargar una imagen desde una URL y devolverla como base64,
+ * para mantener la compatibilidad con el código de Jimp.
+ * @param {string} url - La URL de la imagen.
+ * @returns {Promise<string|null>} Base64 de la imagen o null si falla.
+ */
+const downloadImageAsBase64 = async (url) => {
     try {
-        // 1. Verificar si ya existe en GitHub (Caché)
+        if (!url || !url.startsWith('http')) return null;
+
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
+        const imageBuffer = Buffer.from(response.data);
+        return imageBuffer.toString('base64');
+    } catch (error) {
+        console.warn(`Error al descargar imagen desde URL de respaldo ${url}:`, error.message);
+        return null;
+    }
+};
+
+// --- RUTA MODIFICADA: Genera la ficha, incluye lógica de cache y FALLBACK ---
+app.get("/generar-ficha", async (req, res) => {
+    const { dni } = req.query;
+    if (!dni) return res.status(400).json({ error: "Falta el parámetro DNI" });
+    
+    const dateNow = new Date().toISOString();
+    let data = null;
+    let isFallback = false;
+
+    try { 
+        // 1. 🔍 LÓGICA DE CACHE: Verificar si la imagen ya existe en GitHub
         const cachedUrl = await checkIfDniExists(dni);
+        
         if (cachedUrl) {
+            // Si la imagen existe, devolver la respuesta inmediatamente.
             const urlDescargaProxy = `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(cachedUrl)}`;
+            
+            // ⭐ CAMBIO SOLICITADO AQUÍ (Respuesta de caché)
+            const messageText = `DNI : ${dni}\nESTADO : RESULTADO ENCONTRADO EXITOSAMENTE.`;
+            
             return res.json({
                 "bot": "Consulta pe",
-                "chat_id": 7658983973,
+                "chat_id": 7658983973, 
                 "date": dateNow,
                 "fields": { "dni": dni },
-                "from_id": 7658983973,
-                "message": `DNI : ${dni}\nESTADO : RESULTADO ENCONTRADO EXITOSAMENTE.`,
-                "parts_received": 1,
-                "urls": { "FILE": urlDescargaProxy }
+                "from_id": 7658983973, 
+                "message": messageText,
+                "parts_received": 1, 
+                "urls": {
+                    "FILE": urlDescargaProxy, 
+                }
             });
         }
-
-        // 2. Consultar API Principal
-        let data = null;
-        let isFallback = false;
-
-        try {
-            const response = await axios.get(`${PRIMARY_API_URL}?dni=${dni}`);
-            if (response.data && response.data.nuDni) {
-                data = response.data;
-            }
-        } catch (error) {
-            console.error("Error en API Principal:", error.message);
-        }
-
-        if (!data) {
-            return res.status(404).json({ error: "No se encontraron datos para el DNI proporcionado." });
-        }
-
-        // 3. Generar Imagen con Jimp
-        const width = 1200;
-        const height = 1600;
-        const imagen = new Jimp(width, height, "white");
-
-        const fontData = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK);
-        const fontHeading = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK);
-        const fontTitle = await Jimp.loadFont(Jimp.FONT_SANS_64_BLACK);
-
-        const marginHorizontal = 60;
-        const marginVertical = 60;
-        const columnWidthLeft = 650;
-        const columnWidthRight = 400;
-        const columnLeftX = marginHorizontal;
-        const columnRightX = width - marginHorizontal - columnWidthRight;
-        const separatorX = columnLeftX + columnWidthLeft + 20;
-
-        // Dibujar encabezado
-        try {
-            const icon = await Jimp.read(APP_ICON_URL);
-            icon.resize(120, 120);
-            imagen.composite(icon, marginHorizontal, marginVertical);
-        } catch (e) { console.error("Error cargando icono"); }
-
-        imagen.print(fontTitle, marginHorizontal + 150, marginVertical + 25, "FICHA DE IDENTIDAD");
         
-        const separatorYStart = marginVertical + 150;
-        const separatorYEnd = height - 150;
+        // ----------------------------------------------------
+        // 2. 🚀 LÓGICA DE GENERACIÓN (Si no existe en caché)
+        // ----------------------------------------------------
         
-        // Línea horizontal superior
-        for (let x = marginHorizontal; x < width - marginHorizontal; x++) {
-            imagen.setPixelColor(Jimp.cssColorToHex("#CCCCCC"), x, separatorYStart);
-        }
-        // Línea vertical separadora
-        for (let y = separatorYStart + 20; y < separatorYEnd; y++) {
-            imagen.setPixelColor(Jimp.cssColorToHex("#EEEEEE"), separatorX, y);
-        }
-
-        let yLeft = separatorYStart + 40;
-        let yRight = separatorYStart + 40;
-        const lineSpacing = 45;
-        const headingSpacing = 60;
-
-        const printFieldLeft = (label, value) => {
-            imagen.print(fontHeading, columnLeftX, yLeft, `${label}:`);
-            const val = value || "-";
-            yLeft = printWrappedText(imagen, fontData, columnLeftX + 220, yLeft, columnWidthLeft - 230, val, lineSpacing);
-            yLeft += 10;
-        };
-
-        const printImageRight = async (label, bufferOrUrl, imgWidth, imgHeight) => {
-            if (!bufferOrUrl) return;
-            imagen.print(fontHeading, columnRightX, yRight, label);
-            yRight += headingSpacing;
-            try {
-                const img = await Jimp.read(bufferOrUrl.startsWith?.('http') ? bufferOrUrl : Buffer.from(bufferOrUrl, 'base64'));
-                img.resize(imgWidth, imgHeight);
-                const imgX = columnRightX + (columnWidthRight - imgWidth) / 2;
-                imagen.composite(img, imgX, yRight);
-                yRight += imgHeight + headingSpacing;
-            } catch (e) {
-                console.error(`Error cargando imagen ${label}`);
-                yRight += 20;
-            }
-        };
-
-        const printDualImagesRight = async (bufferLeft, labelLeft, bufferRight, labelRight, imgWidth, imgHeight) => {
-            if (!bufferLeft && !bufferRight) return;
+        // --- Intento de API Primaria ---
+        try {
+            console.log(`Intentando con API Primaria: ${PRIMARY_API_URL}`);
+            const response = await axios.get(`${PRIMARY_API_URL}?dni=${dni}`); 
+            // La API Primaria devuelve el resultado en `response.data.result`
+            data = response.data?.result;
             
-            const gap = 20;
-            const totalWidth = (imgWidth * 2) + gap;
-            const startX = columnRightX + (columnWidthRight - totalWidth) / 2;
-            const imgLeftX = startX;
-            const imgRightX = startX + imgWidth + gap;
-            const labelY = yRight;
+            // Si la API primaria devuelve un error específico (aunque sea con status 200/500)
+            if (response.data?.success === false && response.data?.message === "Error Leder Data" && response.data?.detalle?.error === "token without credits") {
+                throw new Error("TOKEN_CREDITS_ERROR");
+            }
+            
+            if (!data) {
+                // Si la API primaria no devuelve datos válidos (ej. DNI no encontrado, error desconocido)
+                throw new Error("No se encontró información para el DNI en la API principal.");
+            }
 
+        } catch (error) {
+            
+            // Si el error es el específico de "token without credits", usamos la API de respaldo.
+            if (error.message === "TOKEN_CREDITS_ERROR" || (axios.isAxiosError(error) && error.response?.data?.detalle?.error === "token without credits")) {
+                console.log("⚠️ API Primaria falló por 'token without credits'. Usando API de Respaldo.");
+                isFallback = true;
+                
+                // --- Intento de API Secundaria (Fallback) ---
+                const fallbackResponse = await axios.get(`${SECONDARY_API_URL}?dni=${dni}`);
+                const fallbackData = fallbackResponse.data;
+                
+                // Formatear los datos complejos de la API de respaldo.
+                data = handleSecondApiData(fallbackData);
+                
+                if (!data) {
+                     // Si la API de respaldo no funciona o el DNI no existe.
+                    throw new Error("API de Respaldo no devolvió información válida o DNI no encontrado.");
+                }
+
+                // Descargar la foto de la URL y convertirla a base64 para la compatibilidad con Jimp.
+                if (data.imagenes.foto) {
+                    data.imagenes.foto = await downloadImageAsBase64(data.imagenes.foto);
+                }
+
+            } else {
+                // Relanzar cualquier otro error de la API primaria (conexión, 404, etc.)
+                console.error("Error al consultar API Primaria (no es error de token):", error.message);
+                throw error;
+            }
+        }
+        
+        // En este punto, 'data' contiene la información de la API primaria o de la API de respaldo.
+        if (!data) return res.status(404).json({ 
+            error: "No se encontró información para el DNI ingresado en ninguna de las APIs." 
+        }); 
+        
+        // 3. Generación de la imagen (Jimp) - Mismo código
+        const imagen = await new Jimp(1080, 1920, "#003366"); 
+        const marginHorizontal = 50; 
+        const columnLeftX = marginHorizontal; 
+        const columnRightX = imagen.bitmap.width / 2 + 50; 
+        const columnWidthLeft = imagen.bitmap.width / 2 - marginHorizontal - 25; 
+        const columnWidthRight = imagen.bitmap.width / 2 - marginHorizontal - 25; 
+        const lineHeight = 40; 
+        const headingSpacing = 50; 
+        let yStartContent = 300; 
+        let yLeft = yStartContent; 
+        let yRight = yStartContent; 
+        
+        const fontTitle = await Jimp.loadFont(Jimp.FONT_SANS_64_WHITE); 
+        const fontHeading = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE); 
+        const fontBold = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE); 
+        const fontData = await Jimp.loadFont(Jimp.FONT_SANS_16_WHITE); 
+        
+        const marcaAgua = await generarMarcaDeAgua(imagen); 
+        imagen.composite(marcaAgua, 0, 0); 
+        
+        try { 
+            const iconBuffer = (await axios({ url: APP_ICON_URL, responseType: 'arraybuffer' })).data; 
+            const mainIcon = await Jimp.read(iconBuffer); 
+            mainIcon.resize(300, Jimp.AUTO); 
+            const iconX = (imagen.bitmap.width - mainIcon.bitmap.width) / 2; 
+            imagen.composite(mainIcon, iconX, 50); 
+        } catch (error) { 
+            console.error("Error al cargar el icono:", error); 
+            imagen.print(fontTitle, marginHorizontal, 50, "Consulta Ciudadana"); 
+        } 
+        
+        // Línea separadora central 
+        const separatorX = imagen.bitmap.width / 2; 
+        const separatorYStart = yStartContent - 50; 
+        const separatorYEnd = imagen.bitmap.height - 150; 
+        new Jimp(2, separatorYEnd - separatorYStart, 0xFFFFFFFF, (err, line) => { 
+            if (!err) imagen.composite(line, separatorX, separatorYStart); 
+        }); 
+        
+        // Foto del ciudadano 
+        if (data.imagenes?.foto) { 
+            // Si es la API de respaldo, data.imagenes.foto ya es base64 gracias a downloadImageAsBase64
+            const bufferFoto = Buffer.from(data.imagenes.foto, 'base64'); 
+            const foto = await Jimp.read(bufferFoto); 
+            const fotoWidth = 350; 
+            const fotoHeight = 400; 
+            foto.resize(fotoWidth, fotoHeight); 
+            const fotoX = columnRightX + (columnWidthRight - fotoWidth) / 2; 
+            imagen.composite(foto, fotoX, yStartContent); 
+            yRight += fotoHeight + headingSpacing; 
+        } 
+        
+        // Datos en columnas (Mismo código)
+        const printFieldLeft = (label, value) => { 
+            const labelX = columnLeftX; 
+            const valueX = labelX + 250; 
+            const maxWidth = columnWidthLeft - (valueX - labelX); 
+            imagen.print(fontBold, labelX, yLeft, `${label}:`); 
+            const newY = printWrappedText(imagen, fontData, valueX, yLeft, maxWidth, `${value || "-"}`, lineHeight); 
+            yLeft = newY - 10; 
+        }; 
+        
+        // Función auxiliar para imprimir imágenes de una sola columna (como la firma)
+        const printImageRight = async (label, base64Image, targetWidth, targetHeight) => {
+            if (base64Image) {
+                const bufferImage = Buffer.from(base64Image, 'base64');
+                const img = await Jimp.read(bufferImage);
+                const imgWidth = targetWidth; 
+                const imgHeight = targetHeight;
+                img.resize(imgWidth, imgHeight); 
+                const imgX = columnRightX + (columnWidthRight - imgWidth) / 2;
+                
+                // Imprimir el encabezado de la imagen
+                imagen.print(fontHeading, columnRightX, yRight, label); 
+                yRight += headingSpacing; // Espacio después del título
+                
+                // Imprimir la imagen
+                imagen.composite(img, imgX, yRight); 
+                yRight += imgHeight + headingSpacing; // Actualiza la posición Y para el siguiente elemento
+            }
+        };
+
+        // Función auxiliar para imprimir dos imágenes a la misma altura (huellas)
+        const printDualImagesRight = async (base64ImageLeft, labelLeft, base64ImageRight, labelRight, targetWidth, targetHeight) => {
+            const bufferLeft = base64ImageLeft ? Buffer.from(base64ImageLeft, 'base64') : null;
+            const bufferRight = base64ImageRight ? Buffer.from(base64ImageRight, 'base64') : null;
+            
+            // Si no hay ninguna huella, simplemente salimos
+            if (!bufferLeft && !bufferRight) return;
+
+            // Constantes de colocación
+            const imgWidth = targetWidth; 
+            const imgHeight = targetHeight;
+            const separation = 50;
+            const totalWidth = imgWidth * 2 + separation;
+            
+            // X inicial para centrar ambas huellas en la columna derecha
+            const startX = columnRightX + (columnWidthRight - totalWidth) / 2;
+            
+            // Posición de la imagen izquierda
+            const imgLeftX = startX;
+            // Posición de la imagen derecha
+            const imgRightX = startX + imgWidth + separation;
+
+            // Imprimir etiquetas
+            const labelY = yRight;
             if (bufferLeft) {
+                // Centrar texto sobre la imagen izquierda
                 const textWidthLeft = Jimp.measureText(fontHeading, labelLeft);
                 const textXLeft = imgLeftX + (imgWidth - textWidthLeft) / 2;
                 imagen.print(fontHeading, textXLeft, labelY, labelLeft);
             }
             if (bufferRight) {
+                // Centrar texto sobre la imagen derecha
                 const textWidthRight = Jimp.measureText(fontHeading, labelRight);
                 const textXRight = imgRightX + (imgWidth - textWidthRight) / 2;
                 imagen.print(fontHeading, textXRight, labelY, labelRight);
             }
             
-            yRight += headingSpacing;
-            const imageY = yRight;
+            yRight += headingSpacing; // Espacio después de los títulos
 
+            // Imprimir imágenes
+            const imageY = yRight;
             if (bufferLeft) {
-                try {
-                    const imgLeft = await Jimp.read(Buffer.from(bufferLeft, 'base64'));
-                    imgLeft.resize(imgWidth, imgHeight);
-                    imagen.composite(imgLeft, imgLeftX, imageY);
-                } catch (e) { console.error("Error huella izq"); }
+                const imgLeft = await Jimp.read(bufferLeft);
+                imgLeft.resize(imgWidth, imgHeight);
+                imagen.composite(imgLeft, imgLeftX, imageY);
             }
 
             if (bufferRight) {
-                try {
-                    const imgRight = await Jimp.read(Buffer.from(bufferRight, 'base64'));
-                    imgRight.resize(imgWidth, imgHeight);
-                    imagen.composite(imgRight, imgRightX, imageY);
-                } catch (e) { console.error("Error huella der"); }
+                const imgRight = await Jimp.read(bufferRight);
+                imgRight.resize(imgWidth, imgHeight);
+                imagen.composite(imgRight, imgRightX, imageY);
             }
 
-            yRight += imgHeight + headingSpacing;
+            yRight += imgHeight + headingSpacing; // Actualiza la posición Y para el siguiente elemento/QR
         };
 
-        // Foto principal
-        if (data.imagenes?.foto) {
-            await printImageRight("Fotografía", data.imagenes.foto, 300, 380);
-        }
 
         imagen.print(fontHeading, columnLeftX, yLeft, "Datos Personales"); 
         yLeft += headingSpacing; 
@@ -345,6 +555,7 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("Donación", data.donaOrganos); 
         
         yLeft += headingSpacing; 
+        
         imagen.print(fontHeading, columnLeftX, yLeft, "Información Adicional"); 
         yLeft += headingSpacing; 
         
@@ -356,6 +567,7 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("Madre", data.nomMadre); 
         
         yLeft += headingSpacing; 
+        
         imagen.print(fontHeading, columnLeftX, yLeft, "Datos de Dirección"); 
         yLeft += headingSpacing; 
         
@@ -365,6 +577,7 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("Distrito", data.distDireccion); 
         
         yLeft += headingSpacing; 
+        
         imagen.print(fontHeading, columnLeftX, yLeft, "Ubicación"); 
         yLeft += headingSpacing; 
         
@@ -373,98 +586,102 @@ app.get("/generar-ficha", async (req, res) => {
         printFieldLeft("Ubigeo Sunat", data.ubicacion?.ubigeo_sunat); 
         printFieldLeft("Código Postal", data.ubicacion?.codigo_postal); 
         
+        yLeft += headingSpacing; 
+        
+        // 1. Firma (Usa la función de una sola columna)
         await printImageRight("Firma", data.imagenes?.firma, 300, 100);
 
+        // 2. Huellas (Usa la nueva función de doble columna)
         await printDualImagesRight(
             data.imagenes?.huella_izquierda, 
-            "H. Izquierda", 
+            "H. Izquierda", // Texto reducido
             data.imagenes?.huella_derecha, 
-            "H. Derecha",
+            "H. Derecha",   // Texto reducido
             180, 
             200
         );
         
+        // QR al final, separado y con texto 
         try { 
             const qrCodeBuffer = await QRCode.toBuffer(APP_QR_URL); 
             const qrCodeImage = await Jimp.read(qrCodeBuffer); 
             qrCodeImage.resize(250, 250); 
             const qrCodeX = columnRightX + (columnWidthRight - qrCodeImage.bitmap.width) / 2; 
-            const qrY = Math.max(yRight, separatorYEnd - 350);
+            
+            // ⭐ MODIFICACIÓN CLAVE: Mover el QR más arriba. 
+            // Lo posicionamos un poco más arriba de donde termina el contenido de la columna, 
+            // pero asegurando espacio con el pie (separatorYEnd - 300)
+            const qrY = Math.max(yRight, separatorYEnd - 350); // Ajuste aquí (350 para subirlo un poco más)
+
             imagen.composite(qrCodeImage, qrCodeX, qrY); 
             imagen.print(fontHeading, qrCodeX, qrY + 260, "Escanea el QR");
-        } catch (error) { console.error("Error QR:", error); } 
+        } catch (error) { 
+            console.error("Error al generar el código QR:", error); 
+        } 
         
-        const footerY = height - 100; 
-        imagen.print(fontData, marginHorizontal, footerY, "Esta imagen es solo informativa. No representa un documento oficial ni tiene validez legal."); 
+        // Footer 
+        const footerY = imagen.bitmap.height - 100; 
+        imagen.print( 
+            fontData, 
+            marginHorizontal, 
+            footerY, 
+            "Esta imagen es solo informativa. No representa un documento oficial ni tiene validez legal." 
+        ); 
         
+        // 4. Obtener el buffer de la imagen
         const imagenBuffer = await imagen.getBufferAsync(Jimp.MIME_PNG);
+        
+        // 5. Generar nombre con UUID
         const nombreBase = `${data.nuDni}_${uuidv4()}`;
+
+        // 6. Subir la imagen PNG a GitHub y obtener la URL pública
         const urlArchivoGitHub = await uploadToGitHub(`${nombreBase}.png`, imagenBuffer);
+
+        // 7. Crear la URL de descarga (PROXY)
         const urlDescargaProxy = `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(urlArchivoGitHub)}`;
 
-        const messageText = `DNI : ${data.nuDni}\nAPELLIDO PATERNO : ${data.apePaterno || '-'}\nAPELLIDO MATERNO : ${data.apeMaterno || '-'}\nNOMBRES : ${data.preNombres || '-'}\nESTADO : FICHA GENERADA Y GUARDADA EN GITHUB (/public).`;
-
-        res.json({
-            "bot": "Consulta pe",
-            "chat_id": 7658983973, 
-            "date": dateNow,
-            "fields": { "dni": data.nuDni },
-            "from_id": 7658983973, 
-            "message": messageText,
-            "parts_received": 1, 
-            "urls": { "FILE": urlDescargaProxy }
+        // 8. Preparar la respuesta JSON (Ajustamos el mensaje)
+        const estadoMensaje = isFallback ? "⚠️ FALLBACK: Ficha generada con API de Respaldo." : "FICHA GENERADA Y GUARDADA EN GITHUB (/public).";
+        const messageText = `DNI : ${data.nuDni}\nAPELLIDO PATERNO : ${data.apePaterno || '-'}\nAPELLIDO MATERNO : ${data.apeMaterno || '-'}\nNOMBRES : ${data.preNombres || '-'}\nESTADO : ${estadoMensaje}`;
+res.json({
+            bot: "Consulta pe",
+            message: `DNI : ${data.nuDni}\nESTADO : FICHA GENERADA.`,
+            urls: { FILE: `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(githubUrl)}` }
         });
-
-    } catch (error) { 
-        console.error("Error general:", error); 
-        res.status(500).json({ error: "Error al generar la ficha", detalle: error.message }); 
-    } 
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// --- RUTA: Proxy de descarga (CORREGIDO PARA REPOS PRIVADOS) ---
+// --- RUTA CRÍTICA: PROXY DE DESCARGA CON TOKEN ---
 app.get("/descargar-ficha", async (req, res) => {
-    const { url } = req.query; // URL del archivo en GitHub (raw.githubusercontent.com)
-    
-    if (!url) {
-        return res.status(400).send("Falta el parámetro 'url' de la imagen.");
-    }
+    const { url } = req.query;
+    if (!url) return res.status(400).send("No URL");
 
     try {
-        // Configuración para la descarga, incluyendo el token si es de GitHub
-        const config = { responseType: 'arraybuffer' };
-        
-        // Si la URL es de GitHub, agregamos el token de autorización
-        if (url.includes("githubusercontent.com") && GITHUB_TOKEN) {
-            config.headers = {
-                'Authorization': `token ${GITHUB_TOKEN}`,
-                'User-Agent': 'FlyIoImageGeneratorApp'
-            };
+        const config = {
+            responseType: 'arraybuffer',
+            headers: { 'User-Agent': 'FlyIoApp' }
+        };
+
+        // Si el repo es privado, necesitamos el token para descargar de raw.githubusercontent
+        if (GITHUB_TOKEN) {
+            config.headers['Authorization'] = `token ${GITHUB_TOKEN}`;
         }
 
-        // 1. Descargar el archivo de la URL proporcionada
         const response = await axios.get(url, config);
-        const imageBuffer = Buffer.from(response.data);
-
-        // 2. Extraer el nombre del archivo
-        const urlParts = url.split('/');
-        const fileName = urlParts[urlParts.length - 1]; 
-
-        // 3. Establecer las cabeceras para forzar la descarga
+        
         res.set({
-            'Content-Disposition': `attachment; filename="${fileName}"`,
             'Content-Type': 'image/png',
-            'Content-Length': imageBuffer.length
+            'Content-Length': response.data.length,
+            'Cache-Control': 'public, max-age=86400'
         });
 
-        // 4. Enviar el buffer de la imagen
-        res.send(imageBuffer);
-
+        res.send(response.data);
     } catch (error) {
-        console.error("Error al descargar o servir la imagen:", error);
-        res.status(500).send("Error al procesar la descarga del archivo.");
+        console.error("Error Proxy:", error.message);
+        res.status(500).send("Error al descargar: El archivo aún no está disponible o el Token es inválido.");
     }
 });
 
-app.listen(PORT, HOST, () => {
-    console.log(`Servidor corriendo en ${API_BASE_URL}`);
-});
+app.listen(PORT, HOST, () => console.log(`Servidor activo` ));
+
+        
