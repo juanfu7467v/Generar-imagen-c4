@@ -23,49 +23,11 @@ app.options('*', cors());
 // URL base pública
 const API_BASE_URL = process.env.API_BASE_URL || "https://imagen-v2.fly.dev";
 
-// --- URLs de las APIs (Solo Primaria) ---
-const PRIMARY_API_URL = "https://banckend-poxyv1-cosultape-masitaprex.fly.dev/reniec";
-
-// --- Configuración de GitHub ---
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const GITHUB_REPO = process.env.GITHUB_REPO;
-const GITHUB_BRANCH = "main";
+// --- URLs de las APIs (Solo Primaria) - Cargada desde secrets ---
+const PRIMARY_API_URL = process.env.PRIMARY_API_URL || "https://banckend-poxyv1-cosultape-masitaprex.fly.dev/reniec";
 
 const APP_ICON_URL = "https://www.socialcreator.com/srv/imgs/gen/79554_icohome.png";
 const APP_QR_URL = "https://www.socialcreator.com/consultapeapk#apps";
-
-/**
- * Sube un buffer de imagen PNG a un repositorio de GitHub.
- */
-const uploadToGitHub = async (fileName, imageBuffer) => {
-    if (!GITHUB_TOKEN || !GITHUB_REPO) {
-        throw new Error("Error de configuración: GITHUB_TOKEN o GITHUB_REPO no están definidos.");
-    }
-
-    const [owner, repo] = GITHUB_REPO.split('/');
-    const filePath = `public/${fileName}`;
-    const contentBase64 = imageBuffer.toString('base64');
-
-    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
-    const publicUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${GITHUB_BRANCH}/${filePath}`;
-
-    const data = {
-        message: `feat: Ficha generada para DNI ${fileName.split('_')[0]}`,
-        content: contentBase64,
-        branch: GITHUB_BRANCH
-    };
-
-    const config = {
-        headers: {
-            Authorization: `token ${GITHUB_TOKEN}`,
-            'Content-Type': 'application/json',
-            'User-Agent': 'FlyIoImageGeneratorApp'
-        }
-    };
-
-    await axios.put(apiUrl, data, config);
-    return publicUrl;
-};
 
 // Función para generar marcas de agua
 const generarMarcaDeAgua = async (imagen) => {
@@ -284,50 +246,39 @@ app.get("/generar-ficha", cors(), async (req, res) => {
         const footerY = imagen.bitmap.height - 100;
         imagen.print(fontData, marginHorizontal, footerY, "Esta imagen es informativa. No representa un documento oficial.");
         
-        // 4. Buffer y Subida
+        // 3. Convertir imagen a buffer PNG
         const imagenBuffer = await imagen.getBufferAsync(Jimp.MIME_PNG);
-        const nombreBase = `${data.nuDni}_${uuidv4()}.png`;
-        const urlArchivoGitHub = await uploadToGitHub(nombreBase, imagenBuffer);
-        const urlDescargaProxy = `${API_BASE_URL}/descargar-ficha?url=${encodeURIComponent(urlArchivoGitHub)}`;
-
-        res.json({
-            "bot": "Consulta pe",
-            "chat_id": 7658983973,
-            "date": dateNow,
-            "fields": { "dni": data.nuDni },
-            "message": `DNI : ${data.nuDni}\nAPELLIDOS : ${data.apePaterno} ${data.apeMaterno}\nNOMBRES : ${data.preNombres}\nESTADO : FICHA GENERADA EXITOSAMENTE.`,
-            "urls": { "FILE": urlDescargaProxy }
+        
+        // 4. Generar la imagen directamente en la respuesta
+        const nombreArchivo = `ficha_${data.nuDni}_${uuidv4().slice(0, 8)}.png`;
+        
+        // Configurar headers para la descarga
+        res.set({
+            'Content-Type': 'image/png',
+            'Content-Disposition': `attachment; filename="${nombreArchivo}"`,
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
         });
+        
+        // Enviar la imagen directamente
+        res.send(imagenBuffer);
 
     } catch (error) {
         res.status(500).json({ error: "Error en el proceso", detalle: error.message });
     }
 });
 
-// --- Proxy de descarga ---
-app.get("/descargar-ficha", cors(), async (req, res) => {
-    // Configurar headers CORS explícitamente para esta ruta
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    
-    const { url } = req.query;
-    if (!url) return res.status(400).send("Falta la URL");
-    try {
-        const response = await axios.get(url, { responseType: 'arraybuffer' });
-        res.set({
-            'Content-Disposition': `attachment; filename="ficha_${uuidv4()}.png"`,
-            'Content-Type': 'image/png'
-        });
-        res.send(Buffer.from(response.data));
-    } catch (e) {
-        res.status(500).send("Error en descarga");
-    }
-});
-
 // Ruta de verificación de salud
 app.get("/health", cors(), (req, res) => {
-    res.json({ status: "ok", message: "API funcionando correctamente" });
+    res.json({ 
+        status: "ok", 
+        message: "API funcionando correctamente",
+        config: {
+            primary_api_configured: !!process.env.PRIMARY_API_URL,
+            api_base_url: API_BASE_URL
+        }
+    });
 });
 
 // Ruta raíz
@@ -336,14 +287,15 @@ app.get("/", cors(), (req, res) => {
         message: "API de generación de fichas RENIEC",
         endpoints: {
             generar_ficha: "/generar-ficha?dni=TU_DNI",
-            descargar_ficha: "/descargar-ficha?url=URL_ARCHIVO",
             health: "/health"
         },
-        cors: "habilitado para todos los orígenes"
+        cors: "habilitado para todos los orígenes",
+        seguridad: "Sin almacenamiento externo de imágenes"
     });
 });
 
 app.listen(PORT, HOST, () => {
     console.log(`Servidor en ${API_BASE_URL}`);
     console.log(`CORS habilitado para todos los orígenes`);
+    console.log(`PRIMARY_API_URL: ${PRIMARY_API_URL ? "Configurada desde secrets" : "Usando valor por defecto"}`);
 });
